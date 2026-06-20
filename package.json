@@ -1,0 +1,23 @@
+{
+  "name": "xeducation-scheduler-bot",
+  "version": "1.0.0",
+  "description": "Telegram Scheduler and Scraper Bot for X-Education",
+  "main": "launcher.js",
+  "scripts": {
+    "start": "node launcher.js",
+    "scrape": "node scripts/scrape.js",
+    "test": "node --check index.js && node --check launcher.js && node --check scripts/scrape.js && node --check scripts/publishToGithub.js"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.64.0"
+  },
+  "overrides": {
+    "form-data": "2.5.6"
+  }
+}
