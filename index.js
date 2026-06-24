@@ -325,246 +325,74 @@ async function waitForPublishedUrl(url, attempts = 12, delayMs = 10000) {
 
 async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-  const GITHUB_REPO = process.env.GITHUB_REPO;
-  const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-
-  if (!GITHUB_TOKEN || !GITHUB_REPO) {
-    throw new Error('GITHUB_TOKEN and GITHUB_REPO are required to publish');
+  if (!GITHUB_TOKEN || GITHUB_TOKEN === 'YOUR_NEW_GITHUB_TOKEN') {
+    throw new Error('GITHUB_TOKEN is not configured in .env file!');
   }
-  validateGitConfig(GITHUB_REPO, GITHUB_BRANCH);
 
-  console.log(`🌐 Publishing article ${slug} to website...`);
+  console.log(`🌐 Publishing article ${slug} to website API...`);
   try {
-    let webRepoDir = path.join(__dirname, '..', 'VideoLK');
+    let thumbnailUrl = '';
     
-    // Fallback: If not found in parent directory, check/clone inside bot directory
-    if (!fs.existsSync(webRepoDir)) {
-      webRepoDir = path.join(__dirname, 'VideoLK');
-      if (!fs.existsSync(webRepoDir)) {
-        console.log('🌐 Local VideoLK directory not found. Cloning from GitHub...');
-        try {
-          runGit(['clone', '--depth', '1', '--branch', GITHUB_BRANCH, `https://github.com/${GITHUB_REPO}.git`, webRepoDir], __dirname, GITHUB_TOKEN);
-          console.log('✅ VideoLK repository cloned successfully.');
-        } catch (cloneErr) {
-          console.error('❌ Failed to clone VideoLK repository:', cloneErr.message);
-          throw cloneErr;
+    // 1. Download and Upload Thumbnail to Assets Repo via Website API
+    if (photoUrl) {
+      try {
+        console.log(`🖼️ Downloading photo from Telegram...`);
+        const tempPhotoPath = await downloadMedia(photoUrl, `${slug}_thumb.jpg`);
+        const base64Data = fs.readFileSync(tempPhotoPath, { encoding: 'base64' });
+        fs.unlinkSync(tempPhotoPath);
+
+        console.log(`🖼️ Uploading thumbnail to Website API...`);
+        const uploadResponse = await axios.post(`${WEBSITE_URL}/api/admin/upload`, {
+          filename: `${slug}.jpg`,
+          type: 'thumb',
+          base64Data: base64Data
+        }, {
+          headers: {
+            'Authorization': `Bearer ${GITHUB_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (uploadResponse.data && uploadResponse.data.ok) {
+          thumbnailUrl = uploadResponse.data.url;
+          console.log(`✅ Thumbnail uploaded successfully. CDN URL: ${thumbnailUrl}`);
+        } else {
+          throw new Error(uploadResponse.data.error || 'Unknown upload error');
         }
+      } catch (uploadErr) {
+        console.warn(`⚠️ Failed to upload article thumbnail (expired link?):`, uploadErr.message);
+        thumbnailUrl = ''; // Fallback: no thumbnail
       }
     }
 
-    // Pull latest changes to avoid conflicts before writing
-    try {
-      runGit(['pull', '--ff-only', 'origin', GITHUB_BRANCH], webRepoDir, GITHUB_TOKEN);
-      console.log('🔄 Pulled latest changes from VideoLK repository.');
-    } catch (pullErr) {
-      throw new Error(`Git pull failed: ${pullErr.message}`);
-    }
-
-    // 1. Save article meta to js/articles.js
-    const articlesJsPath = path.join(webRepoDir, 'js', 'articles.js');
-    let articlesData = {};
-    
-    if (fs.existsSync(articlesJsPath)) {
-      try {
-        const fileContent = fs.readFileSync(articlesJsPath, 'utf8');
-        const match = fileContent.match(/const ARTICLES_DATA = ({[\s\S]*?});/);
-        if (match) articlesData = JSON.parse(match[1]);
-      } catch (_) {}
-    }
-
-    // Add article entry
-    articlesData[slug] = {
+    // 2. Publish Article Metadata and Content to D1 via Website API
+    console.log(`📝 Sending article metadata to D1...`);
+    const publishResponse = await axios.post(`${WEBSITE_URL}/api/admin/articles`, {
       id: slug,
       title: title,
-      date: new Date().toISOString().split('T')[0],
-      thumbnail: photoUrl ? `assets/thumbs/${slug}.jpg` : '',
+      content: bodyHtml,
+      thumbnail: thumbnailUrl,
       views: Math.floor(Math.random() * 8000) + 1500,
       category: 'sex-education',
       tags: ['sex-education', 'srilanka', 'article']
-    };
-
-    const newJsContent = `/* VideoSLK Articles — Updated: ${new Date().toISOString()} */\nconst ARTICLES_DATA = ${JSON.stringify(articlesData, null, 2)};\n` +
-      `function getAllArticles(){return Object.values(ARTICLES_DATA)}\n` +
-      `function getArticleById(id){return ARTICLES_DATA[id]||null}\n`;
-
-    fs.writeFileSync(articlesJsPath, newJsContent, 'utf8');
-    console.log(`📝 Updated js/articles.js`);
-
-    // 2. Generate watch/read page HTML
-    const articleHtmlDir = path.join(webRepoDir, 'article');
-    if (!fs.existsSync(articleHtmlDir)) fs.mkdirSync(articleHtmlDir, { recursive: true });
-
-    // Download thumbnail for the article
-    let localThumbRelative = '';
-    if (photoUrl) {
-      try {
-        const thumbDir = path.join(webRepoDir, 'assets', 'thumbs');
-        if (!fs.existsSync(thumbDir)) fs.mkdirSync(thumbDir, { recursive: true });
-        const thumbPath = path.join(thumbDir, `${slug}.jpg`);
-        await downloadMedia(photoUrl, `${slug}_thumb.jpg`);
-        fs.copyFileSync(path.join(TEMP_DIR, `${slug}_thumb.jpg`), thumbPath);
-        fs.unlinkSync(path.join(TEMP_DIR, `${slug}_thumb.jpg`));
-        localThumbRelative = `assets/thumbs/${slug}.jpg`;
-        console.log(`🖼️ Saved local article thumbnail to ${thumbPath}`);
-      } catch (thumbErr) {
-        console.warn(`⚠️ Failed to download article thumbnail (expired link?):`, thumbErr.message);
-        localThumbRelative = ''; // Fallback: no thumbnail
+    }, {
+      headers: {
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json'
       }
-    }
+    });
 
-    // Load template or generate article page
-    const templateHtml = generateArticleHtml(slug, title, bodyHtml, localThumbRelative);
-    const articlePagePath = path.join(articleHtmlDir, `${slug}.html`);
-    fs.writeFileSync(articlePagePath, templateHtml, 'utf8');
-    console.log(`📝 Generated article HTML at ${articlePagePath}`);
-
-    // 3. Propose Git Commit and push
-    // We can run git command locally
-    console.log('🔄 Running Git push on VideoLK...');
-    runGit(['config', 'user.email', 'bot@videoslk.eu.cc'], webRepoDir, GITHUB_TOKEN);
-    runGit(['config', 'user.name', 'X-Education Bot'], webRepoDir, GITHUB_TOKEN);
-    runGit(['add', '--', 'js/articles.js', `article/${slug}.html`, ...(localThumbRelative ? [localThumbRelative] : [])], webRepoDir, GITHUB_TOKEN);
-    if (hasStagedGitChanges(webRepoDir, GITHUB_TOKEN)) {
-      runGit(['commit', '-m', `Auto add article: ${slug}`], webRepoDir, GITHUB_TOKEN);
+    if (publishResponse.data && publishResponse.data.ok) {
+      console.log(`✅ Article published successfully to database!`);
+    } else {
+      throw new Error(publishResponse.data.error || 'Unknown publish error');
     }
-    await runGitAsync(['push', 'origin', `HEAD:${GITHUB_BRANCH}`], webRepoDir, GITHUB_TOKEN);
-    console.log('✅ Git push successful. Website will rebuild shortly.');
 
   } catch (err) {
-    console.error('❌ Failed to publish article to website:', err.message);
-    throw err;
+    const errorDetails = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+    console.error('❌ Failed to publish article to website:', errorDetails);
+    throw new Error(`Failed to publish article: ${errorDetails}`);
   }
-}
-
-function generateArticleHtml(slug, title, bodyHtml, thumbnailPath) {
-  const siteUrl = escapeHtml(safeHttpUrl(WEBSITE_URL, 'WEBSITE_URL'));
-  const botLink = escapeHtml(safeHttpUrl(MAIN_BOT_LINK, 'MAIN_BOT_LINK'));
-  const safeSlug = escapeHtml(slug);
-  const safeTitle = escapeHtml(title);
-  const safeBody = escapeHtml(stripHtml(bodyHtml));
-  const previewBody = safeBody.split('\n').slice(0, 3).join('\n');
-  const safeThumbnailPath = escapeHtml(thumbnailPath);
-  
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <script>
-    (function() {
-      var slug = ${JSON.stringify(slug)};
-      if (sessionStorage.getItem('vslk_unlocked_' + slug) !== '1') {
-        window.location.replace('/unlock-article.html?id=' + slug);
-      } else {
-        document.documentElement.classList.add('unlocked');
-      }
-    })();
-  </script>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-  <title>${safeTitle} | Sex Education | VideoSLK</title>
-  <meta name="description" content="Read sex education article: ${safeTitle}. Unlock free on VideoSLK.">
-  <link rel="canonical" href="${siteUrl}/article/${safeSlug}.html">
-  <meta name="theme-color" content="#FF0033">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-32.png">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=10">
-  <script src="/js/adblock.js?v=10"></script>
-  <script src="https://quge5.com/88/tag.min.js" data-zone="218420" async data-cfasync="false"></script>
-  <style>
-    html.unlocked #article-full { display: block !important; }
-    html.unlocked #article-preview { display: none !important; }
-    html.unlocked #locker-container { display: none !important; }
-    .article-container { max-width: 800px; margin: 40px auto; padding: 20px; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); }
-    .article-header { border-bottom: 1px solid var(--border-subtle); padding-bottom: 20px; margin-bottom: 20px; }
-    .article-title { font-size: 2.2rem; font-weight: 900; line-height: 1.2; background: var(--red-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .article-meta { color: var(--text-muted); font-size: 0.9rem; margin-top: 10px; }
-    .article-banner { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 24px; border: 1px solid var(--border-subtle); }
-    .article-content { font-size: 1.1rem; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }
-    .article-content b { color: var(--white); }
-    .article-locked-overlay { padding: 40px 20px; text-align: center; background: rgba(0,0,0,0.4); border-radius: var(--radius-md); border: 1px dashed var(--border-red); margin-top: 20px; }
-    .lock-icon { font-size: 3rem; margin-bottom: 12px; }
-  </style>
-</head>
-<body>
-  <div class="loading-screen">
-    <div class="loading-logo">VIDEO<span>SLK</span></div>
-    <div class="loading-bar-container"><div class="loading-bar"></div></div>
-  </div>
-  <canvas id="particles-canvas"></canvas>
-  <header class="header">
-    <div class="header-inner">
-      <a href="/" class="logo"><div class="logo-icon">▶</div><div class="logo-text">VIDEO<span>SLK</span></div></a>
-      <nav class="nav-links">
-        <a href="/" class="nav-link">🏠 Home</a>
-        <a href="/trending.html" class="nav-link">🔥 Trending</a>
-        <a href="/latest.html" class="nav-link">🆕 Latest</a>
-        <a href="${botLink}" target="_blank" rel="noopener" class="nav-link nav-telegram">📢 Telegram</a>
-      </nav>
-    </div>
-  </header>
-  
-  <main class="main">
-    <div class="container">
-      <div class="article-container">
-        <div class="article-header">
-          <h1 class="article-title">${safeTitle}</h1>
-          <div class="article-meta">📚 Category: Sex Education • 📅 Date: ${new Date().toISOString().split('T')[0]}</div>
-        </div>
-        
-        ${thumbnailPath ? `<img class="article-banner" src="/${safeThumbnailPath}" alt="${safeTitle}">` : ''}
-        
-        <!-- ARTICLE CONTENT PREVIEW -->
-        <div class="article-content" id="article-preview">
-          ${previewBody}...
-        </div>
-
-        <!-- UNLOCK LOCKER -->
-        <div class="article-locked-overlay" id="locker-container">
-          <div class="lock-icon">🔒</div>
-          <h3>Unlock Full Educational Article / සම්පූර්ණ ලිපිය කියවන්න</h3>
-          <p>Complete 2 simple sponsor steps below to unlock this article immediately</p>
-          
-          <div class="unlock-section" id="unlock-section" style="margin-top:20px; background:transparent; border:0; padding:0;">
-            <div class="unlock-progress">
-              <div class="unlock-progress-bar"><div class="unlock-progress-fill"></div></div>
-              <div class="unlock-progress-text">0 / 2 completed</div>
-            </div>
-            <div class="unlock-steps" style="margin-top:15px;">
-              <div class="unlock-step">
-                <div class="step-number step-indicator">1</div>
-                <div class="step-content"><div class="step-instruction">Open sponsor link 1</div></div>
-                <div class="step-action"><button class="sponsor-btn" data-index="0" style="padding:8px 16px; font-size:0.85rem;">🔗 Open Link</button></div>
-              </div>
-              <div class="unlock-step" style="margin-top:10px;">
-                <div class="step-number step-indicator">2</div>
-                <div class="step-content"><div class="step-instruction">Open sponsor link 2</div></div>
-                <div class="step-action"><button class="sponsor-btn" data-index="1" style="padding:8px 16px; font-size:0.85rem;">🔗 Open Link</button></div>
-              </div>
-            </div>
-            <button class="unlock-btn" disabled style="margin-top:20px; width:100%; padding:12px; font-weight:800; border-radius:30px;">🔒 Complete steps to unlock</button>
-          </div>
-        </div>
-
-        <!-- FULL ARTICLE CONTENT (HIDDEN BY DEFAULT) -->
-        <div class="article-content" id="article-full" style="display:none; margin-top:24px;">
-          ${safeBody}
-        </div>
-      </div>
-    </div>
-  </main>
-  
-  <footer class="footer"><div class="container"><div class="footer-inner"><div class="footer-text">© 2026 VideoSLK</div></div></div></footer>
-  
-  <script>
-    // In-page unlock mechanism
-    window.addEventListener('DOMContentLoaded', function() {
-      // Setup mock video ID to hook into same backend unlock.js
-      window.videoDataId = ${JSON.stringify(slug)};
-    });
-  </script>
-  <script src="/js/unlock.js?v=10" defer></script>
-  <script src="/js/app.js" defer></script>
-</body>
-</html>`;
 }
 
 // Prepare next post for review DMs
