@@ -202,7 +202,7 @@ function formatPostText(rawHtml, originalId) {
     .split('\n')[0] // Get first line
     .replace(/[^\w\s\u0d80-\u0dff]/g, '') // Clean punctuation
     .trim()
-    .slice(0, 30);
+    .slice(0, 40) || `Sex Education Post ${originalId}`;
     
   const slug = generateSlug(cleanTitle, originalId);
   const articleUrl = `${WEBSITE_URL}/unlock-article.html?id=${slug}`;
