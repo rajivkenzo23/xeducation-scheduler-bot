@@ -156,8 +156,10 @@ if (posts.length === 0) {
   console.log('⚠️ posts.json is empty! Running scraper automatically...');
   scraperRunning = true;
   const { exec } = require('child_process');
-  exec('node scripts/scrape.js', (err, stdout, stderr) => {
+  exec(`"${process.execPath}" scripts/scrape.js`, (err, stdout, stderr) => {
     scraperRunning = false;
+    if (stdout) console.log(`[Scraper stdout]:\n${stdout}`);
+    if (stderr) console.error(`[Scraper stderr]:\n${stderr}`);
     if (err) {
       console.error('❌ Automatic scraping failed:', err.message);
       return;
@@ -708,7 +710,7 @@ bot.on('message', async (msg) => {
   // commands
   if (text.startsWith('/')) {
     const parts = text.split(' ');
-    const command = parts[0].toLowerCase();
+    const command = parts[0].split('@')[0].toLowerCase();
     const arg = parts[1];
 
     if (command === '/start' || command === '/status') {
@@ -761,10 +763,13 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, '📡 *Starting scraper in the background...* please wait.', { parse_mode: 'Markdown' });
       scraperRunning = true;
       const { exec } = require('child_process');
-      exec('node scripts/scrape.js', (err, stdout, stderr) => {
+      exec(`"${process.execPath}" scripts/scrape.js`, (err, stdout, stderr) => {
         scraperRunning = false;
+        if (stdout) console.log(`[Scraper stdout]:\n${stdout}`);
+        if (stderr) console.error(`[Scraper stderr]:\n${stderr}`);
         if (err) {
-          bot.sendMessage(chatId, `❌ *Scrape failed:* ${err.message}`, { parse_mode: 'Markdown' });
+          const errMsg = stderr ? stderr.trim() : err.message;
+          bot.sendMessage(chatId, `❌ *Scrape failed:* ${errMsg}`, { parse_mode: 'Markdown' });
           return;
         }
         loadPosts();

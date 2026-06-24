@@ -208,6 +208,11 @@ async function runScraper() {
   // Convert map to array and sort chronologically (ascending IDs)
   const sortedPosts = Object.values(allPosts).sort((a, b) => a.id - b.id);
   
+  if (sortedPosts.length === 0) {
+    console.error('❌ Scraper failed to fetch any posts! The channel might be empty, or the request was blocked.');
+    process.exit(1);
+  }
+
   // Write output
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(sortedPosts, null, 2), 'utf8');
   
