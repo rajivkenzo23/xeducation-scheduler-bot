@@ -186,20 +186,31 @@ function formatPostText(rawHtml, originalId) {
   // 2. Strip unsupported tags, keeping only Telegram supported tags
   cleaned = cleaned.replace(/<(?!(\/?(a|b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\b))[^>]+>/gi, '');
 
-  // 3. Replace old owner handle
-  cleaned = cleaned.replace(/@Mr_Karlos_555/g, OWNER_BOT_LINK);
-  cleaned = cleaned.replace(/@Mr_lucky_08/g, OWNER_BOT_LINK);
-  cleaned = cleaned.replace(/@wizard_ka/g, OWNER_BOT_LINK);
+  // 3. Replace old owner handles and links
+  cleaned = cleaned.replace(/t\.me\/Mr_Karlos_555/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mr_Karlos_555/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/t\.me\/Mr_lucky_08/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mr_lucky_08/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/t\.me\/wizard_ka/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@wizard_ka/gi, OWNER_BOT_LINK);
   
-  // 4. Replace old channel names
-  cleaned = cleaned.replace(/@Mahavanshaya_xedu/g, TARGET_CHANNEL);
-  cleaned = cleaned.replace(/මහාවංශය\s*2\.0/gi, 'X - Education');
-  cleaned = cleaned.replace(/Mahavanshaya/gi, 'X - Education');
+  // 4. Replace old channel names and links
+  cleaned = cleaned.replace(/t\.me\/Mahavanshaya_xedu/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mahavanshaya_xedu/gi, '@THEXEducation');
+  cleaned = cleaned.replace(/t\.me\/Mahavanshaya/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mahavanshaya/gi, '@THEXEducation');
+  cleaned = cleaned.replace(/මහාවංශය(\s*2\.0)?/g, 'X - Education🔞🍃');
+  cleaned = cleaned.replace(/Mahavanshaya/gi, 'X - Education🔞🍃');
 
-  // Create website read page slug
+  // Create website read page slug (replace <br> with \n first for correct title extraction)
   const cleanTitle = rawHtml
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]*>/g, '') // Strip HTML tags
-    .split('\n')[0] // Get first line
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)[0] // Get first non-empty line
     .replace(/[^\w\s\u0d80-\u0dff]/g, '') // Clean punctuation
     .trim()
     .slice(0, 40) || `Sex Education Post ${originalId}`;
@@ -325,6 +336,29 @@ async function waitForPublishedUrl(url, attempts = 12, delayMs = 10000) {
   }
 }
 
+function cleanArticleHtml(rawHtml) {
+  if (!rawHtml) return '';
+  let cleaned = rawHtml;
+
+  // Replace old owner handles and links
+  cleaned = cleaned.replace(/t\.me\/Mr_Karlos_555/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mr_Karlos_555/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/t\.me\/Mr_lucky_08/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mr_lucky_08/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/t\.me\/wizard_ka/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@wizard_ka/gi, OWNER_BOT_LINK);
+  
+  // Replace old channel names and links
+  cleaned = cleaned.replace(/t\.me\/Mahavanshaya_xedu/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mahavanshaya_xedu/gi, '@THEXEducation');
+  cleaned = cleaned.replace(/t\.me\/Mahavanshaya/gi, 't.me/THEXEducation');
+  cleaned = cleaned.replace(/@Mahavanshaya/gi, '@THEXEducation');
+  cleaned = cleaned.replace(/මහාවංශය(\s*2\.0)?/g, 'X - Education🔞🍃');
+  cleaned = cleaned.replace(/Mahavanshaya/gi, 'X - Education🔞🍃');
+
+  return cleaned;
+}
+
 async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   if (!GITHUB_TOKEN || GITHUB_TOKEN === 'YOUR_NEW_GITHUB_TOKEN') {
@@ -369,10 +403,11 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
 
     // 2. Publish Article Metadata and Content to D1 via Website API
     console.log(`📝 Sending article metadata to D1...`);
+    const cleanContent = cleanArticleHtml(bodyHtml);
     const publishResponse = await axios.post(`${WEBSITE_URL}/api/admin/articles`, {
       id: slug,
       title: title,
-      content: bodyHtml,
+      content: cleanContent,
       thumbnail: thumbnailUrl,
       views: Math.floor(Math.random() * 8000) + 1500,
       category: 'sex-education',
@@ -531,8 +566,13 @@ bot.on('callback_query', async (query) => {
 
       // 1. Publish to website first (and await Git push completion)
       const cleanTitle = post.textHtml
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
         .replace(/<[^>]*>/g, '') // strip HTML
-        .split('\n')[0]
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)[0]
         .replace(/[^\w\s\u0d80-\u0dff]/g, '')
         .trim()
         .slice(0, 40) || `Sex Education Post ${post.id}`;
