@@ -760,7 +760,15 @@ bot.on('message', async (msg) => {
                     `🎯 Destination: ${TARGET_CHANNEL}\n` +
                     `⏱ Scheduler Enabled: ${state.schedulerEnabled ? '✅ Yes' : '⛔ Paused'}\n` +
                     `⏱ Next Post Review Time: ${state.nextPostTime ? state.nextPostTime : 'Not scheduled'}\n` +
-                    `📝 Currently Reviewing: ${state.reviewingId ? `Post ID ${state.reviewingId}` : 'None'}`;
+                    `📝 Currently Reviewing: ${state.reviewingId ? `Post ID ${state.reviewingId}` : 'None'}\n\n` +
+                    `🛠 *Available Commands:*\n` +
+                    `• \`/start\` or \`/status\` - Show bot stats and list all commands.\n` +
+                    `• \`/trigger\` - Force-send the next queued post to your DM for review.\n` +
+                    `• \`/setindex [number]\` - Set the queue index to a specific post number.\n` +
+                    `• \`/toggle\` - Enable or pause the automatic 24-hour scheduler.\n` +
+                    `• \`/reset\` - Start fresh (resets index to 0 and clears history).\n` +
+                    `• \`/post [number]\` - Force-send a specific post by index to your DM.\n` +
+                    `• \`/scrape\` - Re-scrape historical posts from the Telegram channel.`;
       bot.sendMessage(chatId, stats, { parse_mode: 'Markdown' });
     }
     else if (command === '/trigger') {
