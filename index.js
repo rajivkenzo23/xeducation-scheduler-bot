@@ -787,6 +787,15 @@ bot.on('message', async (msg) => {
       saveState();
       bot.sendMessage(chatId, `⏱ *Scheduler is now ${state.schedulerEnabled ? 'ENABLED' : 'PAUSED'}.*`);
     }
+    else if (command === '/reset') {
+      state.currentIndex = 0;
+      state.publishedPostIds = [];
+      state.reviewingId = null;
+      state.reviewMessageId = null;
+      state.publishingPostId = null;
+      saveState();
+      bot.sendMessage(chatId, `🔄 *Scheduler Bot Memory has been fully reset!* Index is at 0, and all published history has been cleared.`);
+    }
     else if (command === '/post') {
       const idx = parseInt(arg, 10);
       if (isNaN(idx) || idx < 0 || idx >= posts.length) {
