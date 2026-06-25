@@ -213,7 +213,7 @@ function formatPostText(rawHtml, originalId) {
     .filter(Boolean)[0] // Get first non-empty line
     .replace(/[^\w\s\u0d80-\u0dff]/g, '') // Clean punctuation
     .trim()
-    .slice(0, 40) || `Sex Education Post ${originalId}`;
+    .slice(0, 120) || `Sex Education Post ${originalId}`;
     
   const slug = generateSlug(cleanTitle, originalId);
   const articleUrl = `${WEBSITE_URL}/unlock-article.html?id=${slug}`;
@@ -575,7 +575,7 @@ bot.on('callback_query', async (query) => {
         .filter(Boolean)[0]
         .replace(/[^\w\s\u0d80-\u0dff]/g, '')
         .trim()
-        .slice(0, 40) || `Sex Education Post ${post.id}`;
+        .slice(0, 120) || `Sex Education Post ${post.id}`;
         
       const slug = generateSlug(cleanTitle, post.id);
 
