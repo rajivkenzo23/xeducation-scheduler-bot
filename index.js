@@ -766,9 +766,11 @@ bot.on('message', async (msg) => {
                     `• \`/trigger\` - Force-send the next queued post to your DM for review.\n` +
                     `• \`/setindex [number]\` - Set the queue index to a specific post number.\n` +
                     `• \`/toggle\` - Enable or pause the automatic 24-hour scheduler.\n` +
-                    `• \`/reset\` - Start fresh (resets index to 0 and clears history).\n` +
+                    `• \`/reset\` - Reset bot index and history (keeps channel posts and DB).\n` +
                     `• \`/post [number]\` - Force-send a specific post by index to your DM.\n` +
-                    `• \`/scrape\` - Re-scrape historical posts from the Telegram channel.`;
+                    `• \`/scrape\` - Re-scrape historical posts from the Telegram channel.\n` +
+                    `• \`/deletechannel\` - Delete ALL messages from the channel.\n` +
+                    `• \`/nuke\` - ☢️ NUCLEAR: Delete ALL channel msgs + ALL website articles + full reset.`;
       bot.sendMessage(chatId, stats, { parse_mode: 'Markdown' });
     }
     else if (command === '/trigger') {
@@ -833,9 +835,156 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, `✅ *Scraper finished successfully!*\n📦 Loaded *${posts.length}* posts from posts.json.\nUse \`/trigger\` to review the first post.`, { parse_mode: 'Markdown' });
       });
     }
+    else if (command === '/deletechannel') {
+      // Delete all messages from the Telegram channel
+      bot.sendMessage(chatId, '🗑️ *Starting channel cleanup...* This will delete ALL messages from the channel. Please wait.', { parse_mode: 'Markdown' });
+      deleteAllChannelMessages(chatId);
+    }
+    else if (command === '/nuke') {
+      // NUCLEAR option: delete channel + DB articles + full reset
+      bot.sendMessage(chatId,
+        '☢️ *NUCLEAR RESET STARTED*\n\n' +
+        'Step 1/3: Deleting all channel messages...\n' +
+        'Step 2/3: Deleting all website articles from DB...\n' +
+        'Step 3/3: Resetting bot state...\n\n' +
+        'Please wait — this can take a few minutes.',
+        { parse_mode: 'Markdown' }
+      );
+      nukeEverything(chatId);
+    }
 
   }
 });
+
+// ============================================================
+// Helper: Delete ALL messages from a Telegram channel
+// The bot must be an admin with "Delete Messages" permission
+// ============================================================
+async function deleteAllChannelMessages(notifyChatId) {
+  try {
+    // Get channel info to find message ID range
+    // Telegram doesn't have a "get all messages" API for bots, so we
+    // attempt to delete a wide range of message IDs (1 to a high number)
+    // The bot must be channel admin with delete permission.
+    let deletedCount = 0;
+    let failCount = 0;
+    const BATCH_SIZE = 50;
+    const MAX_MSG_ID = 5000; // Try up to message ID 5000
+
+    bot.sendMessage(notifyChatId, `🔄 *Attempting to delete up to ${MAX_MSG_ID} channel messages in batches...*`, { parse_mode: 'Markdown' });
+
+    for (let msgId = 1; msgId <= MAX_MSG_ID; msgId += BATCH_SIZE) {
+      const batch = [];
+      for (let i = msgId; i < msgId + BATCH_SIZE && i <= MAX_MSG_ID; i++) {
+        batch.push(i);
+      }
+      // Try deleting each message in the batch
+      const results = await Promise.allSettled(
+        batch.map(id => bot.deleteMessage(TARGET_CHANNEL, id))
+      );
+      deletedCount += results.filter(r => r.status === 'fulfilled').length;
+      failCount += results.filter(r => r.status === 'rejected').length;
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    bot.sendMessage(notifyChatId,
+      `✅ *Channel cleanup complete!*\n🗑️ Successfully deleted: *${deletedCount}* messages\n⚠️ Skipped (not found/already deleted): *${failCount}*\n\nChannel is now clean. Use \`/trigger\` to start posting fresh content!`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (err) {
+    console.error('❌ deleteAllChannelMessages error:', err.message);
+    bot.sendMessage(notifyChatId, `❌ *Channel deletion failed:* ${err.message}\n\n⚠️ Make sure the bot is an admin in the channel with *Delete Messages* permission.`, { parse_mode: 'Markdown' });
+  }
+}
+
+// ============================================================
+// Helper: NUKE EVERYTHING - channel + DB + bot state
+// ============================================================
+async function nukeEverything(notifyChatId) {
+  const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+  let dbDeleted = 0;
+
+  // Step 1: Delete all channel messages
+  try {
+    await bot.sendMessage(notifyChatId, '🔄 *Step 1/3:* Deleting all channel messages...', { parse_mode: 'Markdown' });
+    let deletedCount = 0;
+    const MAX_MSG_ID = 5000;
+    const BATCH_SIZE = 50;
+
+    for (let msgId = 1; msgId <= MAX_MSG_ID; msgId += BATCH_SIZE) {
+      const batch = [];
+      for (let i = msgId; i < msgId + BATCH_SIZE && i <= MAX_MSG_ID; i++) {
+        batch.push(i);
+      }
+      const results = await Promise.allSettled(
+        batch.map(id => bot.deleteMessage(TARGET_CHANNEL, id))
+      );
+      deletedCount += results.filter(r => r.status === 'fulfilled').length;
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    await bot.sendMessage(notifyChatId, `✅ *Step 1/3 done:* Deleted *${deletedCount}* channel messages.`, { parse_mode: 'Markdown' });
+  } catch (err) {
+    await bot.sendMessage(notifyChatId, `⚠️ *Step 1/3 warning:* Channel deletion encountered an error: ${err.message}\nContinuing...`, { parse_mode: 'Markdown' });
+  }
+
+  // Step 2: Delete all articles from website DB
+  try {
+    await bot.sendMessage(notifyChatId, '🔄 *Step 2/3:* Deleting all website articles from database...', { parse_mode: 'Markdown' });
+    if (!GITHUB_TOKEN) throw new Error('GITHUB_TOKEN not configured');
+
+    const deleteResponse = await axios.delete(`${WEBSITE_URL}/api/admin/articles/all`, {
+      headers: {
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    if (deleteResponse.data && deleteResponse.data.ok) {
+      dbDeleted = deleteResponse.data.deleted || 0;
+      await bot.sendMessage(notifyChatId, `✅ *Step 2/3 done:* Deleted *${dbDeleted}* articles from website database.`, { parse_mode: 'Markdown' });
+    } else {
+      throw new Error(deleteResponse.data.error || 'Unknown error from API');
+    }
+  } catch (err) {
+    await bot.sendMessage(notifyChatId, `⚠️ *Step 2/3 warning:* DB deletion error: ${err.message}\nContinuing...`, { parse_mode: 'Markdown' });
+  }
+
+  // Step 3: Reset bot state completely
+  try {
+    await bot.sendMessage(notifyChatId, '🔄 *Step 3/3:* Resetting bot state and clearing post cache...', { parse_mode: 'Markdown' });
+
+    // Reset all state
+    state.currentIndex = 0;
+    state.publishedPostIds = [];
+    state.reviewingId = null;
+    state.reviewMessageId = null;
+    state.publishingPostId = null;
+    state.schedulerEnabled = true;
+    state.lastPostTime = null;
+    state.nextPostTime = null;
+    saveState();
+
+    // Clear posts cache (force re-scrape next time)
+    posts = [];
+    if (fs.existsSync(POSTS_FILE)) {
+      fs.writeFileSync(POSTS_FILE, '[]', 'utf8');
+    }
+
+    await bot.sendMessage(notifyChatId,
+      `✅ *Step 3/3 done:* Bot state fully reset.\n\n` +
+      `☢️ *NUCLEAR RESET COMPLETE!*\n\n` +
+      `🗑️ Channel: All messages deleted\n` +
+      `🗑️ Website DB: ${dbDeleted} articles deleted\n` +
+      `🔄 Bot: Index reset to 0, all history cleared\n\n` +
+      `Now run \`/scrape\` to fetch fresh posts, then \`/trigger\` to start posting with the new flow!`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (err) {
+    await bot.sendMessage(notifyChatId, `❌ *Step 3/3 error:* ${err.message}`, { parse_mode: 'Markdown' });
+  }
+}
 
 // Scheduler loop (runs every 60 seconds)
 setInterval(() => {
