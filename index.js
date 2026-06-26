@@ -170,10 +170,11 @@ if (posts.length === 0) {
   });
 }
 
+
 // Admin session storage for editing
 const adminSession = {};
 
-// Clean and format post text
+// Clean and format post text — sends FULL content, site link at bottom
 function formatPostText(rawHtml, originalId) {
   if (!rawHtml) return '';
 
@@ -184,15 +185,15 @@ function formatPostText(rawHtml, originalId) {
     .replace(/<\/div>/gi, '\n');
 
   // 2. Strip unsupported tags, keeping only Telegram supported tags
-  cleaned = cleaned.replace(/<(?!(\/?(a|b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\b))[^>]+>/gi, '');
+  cleaned = cleaned.replace(/<(?!(\/?(?:a|b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\b))[^>]+>/gi, '');
 
   // 3. Replace old owner handles and links
   cleaned = cleaned.replace(/t\.me\/Mr_Karlos_555/gi, 't.me/THEXEducation');
-  cleaned = cleaned.replace(/@Mr_Karlos_555/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/@Mr_Karlos_555/gi, '@THEXEducation');
   cleaned = cleaned.replace(/t\.me\/Mr_lucky_08/gi, 't.me/THEXEducation');
-  cleaned = cleaned.replace(/@Mr_lucky_08/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/@Mr_lucky_08/gi, '@THEXEducation');
   cleaned = cleaned.replace(/t\.me\/wizard_ka/gi, 't.me/THEXEducation');
-  cleaned = cleaned.replace(/@wizard_ka/gi, OWNER_BOT_LINK);
+  cleaned = cleaned.replace(/@wizard_ka/gi, '@THEXEducation');
   
   // 4. Replace old channel names and links
   cleaned = cleaned.replace(/t\.me\/Mahavanshaya_xedu/gi, 't.me/THEXEducation');
@@ -202,7 +203,7 @@ function formatPostText(rawHtml, originalId) {
   cleaned = cleaned.replace(/මහාවංශය(\s*2\.0)?/g, 'X - Education🔞🍃');
   cleaned = cleaned.replace(/Mahavanshaya/gi, 'X - Education🔞🍃');
 
-  // Create website read page slug (replace <br> with \n first for correct title extraction)
+  // Extract clean title from first non-empty line (for slug generation & header)
   const cleanTitle = rawHtml
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
@@ -216,17 +217,16 @@ function formatPostText(rawHtml, originalId) {
     .slice(0, 120) || `Sex Education Post ${originalId}`;
     
   const slug = generateSlug(cleanTitle, originalId);
-  const articleUrl = `${WEBSITE_URL}/unlock-article.html?id=${slug}`;
+  // Direct article URL — no unlock gate, users can read freely
+  const articleUrl = `${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`;
 
-  // Create teaser (first 2 non-empty lines)
-  const cleanedLines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
-  const teaser = cleanedLines.slice(0, 2).join('\n') + (cleanedLines.length > 2 ? '...' : '');
-
-  // Format the text with beautiful super emojis and call to action
-  let formatted = `🔞🍃 <b>${escapeHtml(cleanTitle)}</b>\n\n` +
-                  `${sanitizeTelegramHtml(teaser)}\n\n` +
-                  `📚 <b>සම්පූර්ණ ලිපිය කියවන්න (Read Full Article):</b>\n` +
-                  `👉 <a href="${articleUrl}">මෙහි ක්ලික් කරන්න (Click Here to Unlock)</a>`;
+  // Format the FULL post with title header and full body, site link below
+  let formatted = `🔞🍃 <b>X - Education</b>\n\n` +
+                  `${sanitizeTelegramHtml(cleaned.trim())}\n\n` +
+                  `━━━━━━━━━━━━━━\n` +
+                  `📖 <b>Read on Website:</b>\n` +
+                  `👉 <a href="${articleUrl}">${WEBSITE_URL}/article/${slug}</a>\n\n` +
+                  `📢 <b>Channel:</b> <a href="https://t.me/THEXEducation">X - Education 🔞🍃</a>`;
 
   return sanitizeTelegramHtml(formatted);
 }
