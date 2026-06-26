@@ -17,6 +17,7 @@ const TARGET_CHANNEL = process.env.TARGET_CHANNEL_USERNAME || '@THEXEducation';
 const WEBSITE_URL = process.env.WEBSITE_URL || 'https://videoslk.eu.cc';
 const MAIN_BOT_LINK = process.env.MAIN_BOT_LINK || 'https://t.me/ukussa_69_bot';
 const OWNER_BOT_LINK = process.env.OWNER_BOT_LINK || 'https://t.me/Ukussa_Admin49_Bot';
+const WHATSAPP_CHANNEL = process.env.WHATSAPP_CHANNEL || 'https://whatsapp.com/channel/0029VbA9drwBadmctNhZGN3S';
 
 if (!BOT_TOKEN || isNaN(ADMIN_ID)) {
   console.error('❌ BOT_TOKEN or ADMIN_ID is not configured in .env file!');
@@ -586,14 +587,24 @@ bot.on('callback_query', async (query) => {
       await updateAdminStatus('⏳ *Website updated!* Waiting for the article URL to become reachable...');
       await waitForPublishedUrl(`${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`);
 
-      // 3. Post to the Telegram Channel
+      // 3. Post to the Telegram Channel with inline buttons
+      const channelKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '📢 Join Telegram Channel', url: 'https://t.me/THEXEducation' },
+            { text: '💚 Join WhatsApp Channel', url: WHATSAPP_CHANNEL }
+          ]
+        ]
+      };
+
       if (post.photoUrl && finalPostText.length <= 1024) {
         const filename = `post_${post.id}.jpg`;
         const localPath = await downloadMedia(post.photoUrl, filename);
         
         await bot.sendPhoto(TARGET_CHANNEL, localPath, {
           caption: finalPostText,
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
+          reply_markup: channelKeyboard
         });
         
         fs.rmSync(localPath, { force: true });
@@ -603,7 +614,8 @@ bot.on('callback_query', async (query) => {
           textToSend = `<a href="${post.photoUrl}">&#8203;</a>` + textToSend;
         }
         await bot.sendMessage(TARGET_CHANNEL, textToSend, {
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
+          reply_markup: channelKeyboard
         });
       }
 
