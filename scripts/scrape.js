@@ -2,10 +2,15 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+
+// Load environment variables
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // Target channel info
 const CHANNEL_NAME = 'Mahavanshaya_xedu';
-const FIRST_POST_ID = parseInt(process.env.SCRAPE_START_ID, 10) || 3700;
+const FIRST_POST_ID = parseInt(process.env.SCRAPE_START_ID, 10) || 61;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const OUTPUT_FILE = path.join(DATA_DIR, 'posts.json');
 
@@ -14,53 +19,34 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Helper for delaying requests (Telegram rate limiting)
+// Helper for delaying requests
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Clean text formatting to keep Telegram-compatible HTML tags
+// Clean text formatting for telegram-compatible tags (Web preview fallback)
 function sanitizeHtml(html) {
   if (!html) return '';
-  
-  // Re-map some cheerio outputs if needed, but cheerio's HTML is mostly fine.
-  // We want to keep: <b>, <strong>, <i>, <em>, <u>, <s>, strike, del, a, code, pre
-  // We can use a simple regex or cheerio to strip other tags.
   const $ = cheerio.load(html, null, false);
-  
   $('*').each((i, el) => {
     const tagName = el.tagName.toLowerCase();
     const allowed = ['b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'a', 'code', 'pre', 'br'];
     if (!allowed.includes(tagName)) {
-      // Replace element with its text contents
       $(el).replaceWith($(el).html() || $(el).text());
     } else if (tagName === 'a') {
-      // Only keep href attribute
       const href = $(el).attr('href');
-      $(el).removeAttr('class');
-      $(el).removeAttr('target');
-      $(el).removeAttr('rel');
-      if (href) {
-        $(el).attr('href', href);
-      } else {
-        $(el).replaceWith($(el).html() || $(el).text());
-      }
+      $(el).removeAttr('class').removeAttr('target').removeAttr('rel');
+      if (href) $(el).attr('href', href);
+      else $(el).replaceWith($(el).html() || $(el).text());
     } else {
-      // Strip attributes from other allowed tags
-      $(el).each((_, element) => {
-        element.attribs = {};
-      });
+      $(el).each((_, element) => { element.attribs = {}; });
     }
   });
-
-  return $.html()
-    .replace(/&nbsp;/g, ' ')
-    .trim();
+  return $.html().replace(/&nbsp;/g, ' ').trim();
 }
 
+// Old Cheerio Web Scraper (fallback)
 async function scrapePage(beforeId = null) {
   let url = `https://t.me/s/${CHANNEL_NAME}`;
-  if (beforeId) {
-    url += `?before=${beforeId}`;
-  }
+  if (beforeId) url += `?before=${beforeId}`;
 
   console.log(`📡 Fetching: ${url}`);
   try {
@@ -76,17 +62,15 @@ async function scrapePage(beforeId = null) {
 
     $('.tgme_widget_message').each((index, element) => {
       const $el = $(element);
-      const postPath = $el.attr('data-post') || ''; // e.g. Mahavanshaya_xedu/3775
+      const postPath = $el.attr('data-post') || '';
       if (!postPath || !postPath.includes('/')) return;
 
       const id = parseInt(postPath.split('/')[1], 10);
       if (isNaN(id)) return;
 
-      // Extract text content with formatting preserved
       const textHtmlEl = $el.find('.tgme_widget_message_text');
       const textHtml = textHtmlEl.length > 0 ? sanitizeHtml(textHtmlEl.html()) : '';
 
-      // Extract photo URL (usually background-image style)
       let photoUrl = '';
       const photoEl = $el.find('.tgme_widget_message_photo_wrap');
       if (photoEl.length > 0) {
@@ -95,28 +79,23 @@ async function scrapePage(beforeId = null) {
         if (match) photoUrl = match[1];
       }
 
-      // Extract video URL if present (look for video tags or preview players)
       let videoUrl = '';
       const videoEl = $el.find('.tgme_widget_message_video');
       if (videoEl.length > 0) {
-        // In Telegram web preview, videos are loaded via video tag sources
         const videoSrc = videoEl.find('video').attr('src');
         if (videoSrc) {
           videoUrl = videoSrc;
         } else {
-          // Fallback to background image/thumb of the video player
           const videoPlayEl = $el.find('.tgme_widget_message_video_player');
           const style = videoPlayEl.attr('style') || '';
           const match = style.match(/background-image:\s*url\(['"]?([^'"]+)['"]?\)/);
-          if (match) photoUrl = match[1]; // Store video thumbnail as photoUrl
+          if (match) photoUrl = match[1];
         }
       }
 
-      // Extract date
       const dateEl = $el.find('.tgme_widget_message_date time');
       const datetime = dateEl.attr('datetime') || '';
 
-      // Ignore service messages (no text and no media)
       if (!textHtml && !photoUrl && !videoUrl) return;
 
       messages.push({
@@ -136,89 +115,140 @@ async function scrapePage(beforeId = null) {
   }
 }
 
-async function runScraper() {
-  console.log(`🚀 Starting scraper for Telegram channel: @${CHANNEL_NAME}`);
-  console.log(`📍 Starting from post ID: ${FIRST_POST_ID}`);
-
+async function runSlowWebScraper() {
+  console.log(`📡 Falling back to slow web-preview scraping...`);
   let allPosts = {};
   let beforeId = null;
   let hasMore = true;
   let consecutiveErrors = 0;
 
-  // Read existing posts if any, to avoid starting from scratch if interrupted
-  if (fs.existsSync(OUTPUT_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(OUTPUT_FILE, 'utf8'));
-      if (Array.isArray(data)) {
-        data.forEach(p => { allPosts[p.id] = p; });
-        console.log(`📦 Loaded ${data.length} existing posts from cache.`);
-      }
-    } catch (_) {}
-  }
-
   while (hasMore) {
     const posts = await scrapePage(beforeId);
-    
     if (!posts || posts.length === 0) {
       consecutiveErrors++;
-      if (consecutiveErrors >= 3) {
-        console.log('⚠️ Too many consecutive errors. Stopping scraper.');
-        break;
-      }
-      console.log('⏳ Page fetch empty, retrying in 5s...');
+      if (consecutiveErrors >= 3) break;
       await sleep(5000);
       continue;
     }
-
     consecutiveErrors = 0;
 
-    // Track new posts
     let minId = Infinity;
-    let addedCount = 0;
-    let skippedCount = 0;
-
     posts.forEach(post => {
       if (post.id < minId) minId = post.id;
-      
-      // Store post
       if (post.id >= FIRST_POST_ID) {
-        if (!allPosts[post.id]) {
-          allPosts[post.id] = post;
-          addedCount++;
-        } else {
-          skippedCount++;
-        }
+        allPosts[post.id] = post;
       }
     });
 
-    console.log(`➡️ Processed ${posts.length} posts (Added new: ${addedCount}, Duplicates: ${skippedCount}). Min ID on page: ${minId}`);
-
-    // If we've reached the minimum post ID threshold or can't go further back
+    console.log(`➡️ Processed ${posts.length} posts. Min ID on page: ${minId}`);
     if (minId <= FIRST_POST_ID || minId === Infinity || posts.length < 5) {
-      console.log(`✅ Reached the first post ID limit (${FIRST_POST_ID}).`);
       hasMore = false;
     } else {
-      // Setup beforeId for the next request to walk backwards
       beforeId = minId;
-      // Stagger requests to avoid getting banned by Telegram
       await sleep(1500 + Math.random() * 1000);
     }
   }
 
-  // Convert map to array and sort chronologically (ascending IDs)
   const sortedPosts = Object.values(allPosts).sort((a, b) => a.id - b.id);
-  
-  if (sortedPosts.length === 0) {
-    console.error('❌ Scraper failed to fetch any posts! The channel might be empty, or the request was blocked.');
-    process.exit(1);
-  }
-
-  // Write output
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(sortedPosts, null, 2), 'utf8');
-  
-  console.log(`\n🎉 Scraper Finished!`);
-  console.log(`📊 Total posts scraped and saved: ${sortedPosts.length}`);
-  console.log(`💾 Data saved to: ${OUTPUT_FILE}`);
+  console.log(`\n🎉 Scraper Finished! Total posts: ${sortedPosts.length}`);
 }
 
-runScraper();
+// Main Runner
+async function main() {
+  const apiId = parseInt(process.env.TELEGRAM_API_ID, 10);
+  const apiHash = process.env.TELEGRAM_API_HASH;
+  const sessionStr = process.env.TELEGRAM_SESSION;
+
+  if (!apiId || !apiHash || !sessionStr || sessionStr === 'YOUR_TELEGRAM_SESSION_HERE') {
+    await runSlowWebScraper();
+    return;
+  }
+
+  console.log(`🚀 Starting GramJS-powered Fast Scraper for @${CHANNEL_NAME}`);
+  console.log(`📍 Target post range: ID ${FIRST_POST_ID} to Latest`);
+
+  try {
+    const stringSession = new StringSession(sessionStr);
+    const client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
+    await client.connect();
+    console.log("🚀 GramJS client connected successfully!");
+
+    let allPosts = {};
+    let offsetId = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      console.log(`📡 Fetching messages from channel... (Offset ID: ${offsetId || 'Latest'})`);
+      const msgs = await client.getMessages(CHANNEL_NAME, {
+        limit: 100,
+        offsetId: offsetId
+      });
+
+      if (!msgs || msgs.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      let minId = Infinity;
+      let added = 0;
+
+      for (const msg of msgs) {
+        if (msg.id < minId) minId = msg.id;
+
+        // Ignore service messages
+        if (!msg.message && !msg.media) continue;
+
+        if (msg.id >= FIRST_POST_ID) {
+          // Format entities into Telegram-compatible HTML tags
+          let textHtml = msg.message || '';
+          // Simple link & formatting converter for basic representation
+          textHtml = textHtml
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+
+          let photoUrl = '';
+          if (msg.media && msg.media.photo) {
+            photoUrl = `telegram_media_${msg.id}`; // Flags media exists for GramJS fallback download
+          }
+
+          allPosts[msg.id] = {
+            id: msg.id,
+            textHtml: textHtml,
+            photoUrl: photoUrl,
+            videoUrl: '',
+            datetime: new Date(msg.date * 1000).toISOString(),
+            originalUrl: `https://t.me/${CHANNEL_NAME}/${msg.id}`
+          };
+          added++;
+        }
+      }
+
+      console.log(`➡️ Processed ${msgs.length} posts (Added in range: ${added}, Min ID: ${minId})`);
+
+      if (minId <= FIRST_POST_ID || msgs.length < 5) {
+        hasMore = false;
+      } else {
+        offsetId = minId;
+        await sleep(500); // Small delay to avoid API limits
+      }
+    }
+
+    await client.disconnect();
+
+    const sortedPosts = Object.values(allPosts).sort((a, b) => a.id - b.id);
+    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(sortedPosts, null, 2), 'utf8');
+
+    console.log(`\n🎉 GramJS Scraper Finished!`);
+    console.log(`📊 Total posts scraped: ${sortedPosts.length}`);
+    console.log(`💾 Saved to: ${OUTPUT_FILE}`);
+
+  } catch (err) {
+    console.error("❌ GramJS scraping failed, falling back to web scraper:", err.message);
+    await runSlowWebScraper();
+  }
+}
+
+main();
