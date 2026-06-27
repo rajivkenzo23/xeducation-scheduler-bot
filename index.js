@@ -694,16 +694,40 @@ bot.on('callback_query', async (query) => {
         ]
       };
 
+      let localPath = null;
       if (post.photoUrl && finalPostText.length <= 1024) {
-        const filename = `post_${post.id}.jpg`;
-        const localPath = await downloadMedia(post.photoUrl, filename);
-        
+        try {
+          const filename = `post_${post.id}.jpg`;
+          localPath = await downloadMedia(post.photoUrl, filename);
+        } catch (dlErr) {
+          console.warn('⚠️ Failed to download channel photo locally, trying GramJS...', dlErr.message);
+          if (gramjsClient && gramjsClient.connected) {
+            try {
+              const channel = 'Mahavanshaya_xedu';
+              const msgs = await gramjsClient.getMessages(channel, { ids: [post.id] });
+              if (msgs && msgs[0] && msgs[0].media) {
+                const buffer = await gramjsClient.downloadMedia(msgs[0].media, {});
+                if (buffer) {
+                  const tempDir = path.join(__dirname, 'temp');
+                  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+                  localPath = path.join(tempDir, `post_${post.id}.jpg`);
+                  fs.writeFileSync(localPath, buffer);
+                  console.log(`✅ GramJS successfully downloaded fallback photo for channel post to ${localPath}`);
+                }
+              }
+            } catch (gramErr) {
+              console.error('⚠️ GramJS channel photo download failed:', gramErr.message);
+            }
+          }
+        }
+      }
+
+      if (localPath && fs.existsSync(localPath)) {
         await bot.sendPhoto(TARGET_CHANNEL, localPath, {
           caption: finalPostText,
           parse_mode: 'HTML',
           reply_markup: channelKeyboard
         });
-        
         fs.rmSync(localPath, { force: true });
       } else {
         let textToSend = finalPostText;
