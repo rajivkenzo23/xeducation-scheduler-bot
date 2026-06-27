@@ -52,8 +52,8 @@ const { existsSync, writeFileSync } = require('fs');
 const path = require('path');
 
 const REPO_URL = 'https://github.com/rajivkenzo23/xeducation-scheduler-bot.git';
-const BOT_DIR  = 'xeducation-scheduler-bot';
-const ENV_PATH = path.join(BOT_DIR, '.env');
+const BOT_DIR  = existsSync(path.join(__dirname, 'index.js')) ? '.' : 'xeducation-scheduler-bot';
+const ENV_PATH = path.join(__dirname, BOT_DIR === '.' ? '' : BOT_DIR, '.env');
 
 // Restart throttle
 let restartCount    = 0;
@@ -67,7 +67,7 @@ function log(msg) { console.log(`[Launcher] ${msg}`); }
 function err(msg) { console.error(`[Launcher] ❌ ${msg}`); }
 
 function run(cmd, args, cwd) {
-  const result = spawnSync(cmd, args, { cwd, stdio: 'inherit', shell: false });
+  const result = spawnSync(cmd, args, { cwd, stdio: 'inherit', shell: true });
   if (result.error) throw new Error(`${cmd} failed: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`${cmd} exited with code ${result.status}`);
 }
@@ -93,6 +93,10 @@ function installDeps() {
 // ── Clone or Pull ────────────────────────────────────────────────
 
 function cloneOrPull() {
+  if (BOT_DIR === '.') {
+    log('Running inside repository. Skipping git clone/pull via launcher.');
+    return;
+  }
   if (!existsSync(BOT_DIR)) {
     log(`Cloning repo from ${REPO_URL} ...`);
     run('git', ['clone', REPO_URL, BOT_DIR]);
@@ -108,7 +112,7 @@ function cloneOrPull() {
 // ── Start the Bot ────────────────────────────────────────────────
 
 function startBot() {
-  log('Starting X - Education Scheduler Bot...');
+  log('Starting Bot daemon loop...');
 
   const child = spawn('node', ['index.js'], {
     cwd: BOT_DIR,
