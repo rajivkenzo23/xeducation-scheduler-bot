@@ -485,7 +485,7 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
     const publishResponse = await axios.post(`${WEBSITE_URL}/api/admin/articles`, {
       id: slug,
       title: title,
-      content: cleanContent,
+      content: '', // Full content is only on Blogger
       thumbnail: thumbnailUrl,
       views: Math.floor(Math.random() * 8000) + 1500,
       category: 'sex-education',
