@@ -38,6 +38,7 @@ async function publishArticleToBlogger(title, bodyHtml, photoUrl) {
 
     const res = await bloggerClient.posts.insert({
       blogId: blogId,
+      isDraft: false,
       requestBody: {
         title: title,
         content: contentHtml,
