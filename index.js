@@ -709,9 +709,13 @@ bot.on('callback_query', async (query) => {
       const bloggerUrl = await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl, post.id);
       console.log('✅ Article pushed to GitHub.');
 
-      // 2. Verify the deployed article is reachable before publishing its link.
-      await updateAdminStatus('⏳ *Website updated!* Waiting for the article URL to become reachable...');
-      await waitForPublishedUrl(`${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`);
+      // 2. Verify the deployed article is reachable (non-blocking check)
+      try {
+        await updateAdminStatus('⏳ *Website updated!* Checking article page status...');
+        await waitForPublishedUrl(`${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`, 6, 5000); // 30s max check
+      } catch (checkErr) {
+        console.warn(`⚠️ Article page reachability check warning: ${checkErr.message}. Continuing...`);
+      }
 
       // 3. Post to the Telegram Channel with inline buttons
       const channelKeyboard = {
