@@ -428,7 +428,7 @@ function cleanArticleHtml(rawHtml) {
   return cleaned;
 }
 
-async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
+async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   if (!GITHUB_TOKEN || GITHUB_TOKEN === 'YOUR_NEW_GITHUB_TOKEN') {
     throw new Error('GITHUB_TOKEN is not configured in .env file!');
@@ -441,28 +441,55 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
     // 1. Download and Upload Thumbnail to Assets Repo via Website API
     if (photoUrl) {
       try {
-        console.log(`🖼️ Downloading photo from Telegram...`);
-        const tempPhotoPath = await downloadMedia(photoUrl, `${slug}_thumb.jpg`);
-        const base64Data = fs.readFileSync(tempPhotoPath, { encoding: 'base64' });
-        fs.unlinkSync(tempPhotoPath);
-
-        console.log(`🖼️ Uploading thumbnail to Website API...`);
-        const uploadResponse = await axios.post(`${WEBSITE_URL}/api/admin/upload`, {
-          filename: `${slug}.jpg`,
-          type: 'thumb',
-          base64Data: base64Data
-        }, {
-          headers: {
-            'Authorization': `Bearer ${GITHUB_TOKEN}`,
-            'Content-Type': 'application/json'
+        let tempPhotoPath = null;
+        try {
+          console.log(`🖼️ Downloading photo from Telegram...`);
+          tempPhotoPath = await downloadMedia(photoUrl, `${slug}_thumb.jpg`);
+        } catch (dlErr) {
+          console.warn('⚠️ Failed to download thumbnail URL, trying GramJS fallback...', dlErr.message);
+          if (postId && gramjsClient && gramjsClient.connected) {
+            try {
+              console.log(`📸 GramJS downloading thumbnail for message ID ${postId}...`);
+              const channel = 'Mahavanshaya_xedu';
+              const msgs = await gramjsClient.getMessages(channel, { ids: [postId] });
+              if (msgs && msgs[0] && msgs[0].media) {
+                const buffer = await gramjsClient.downloadMedia(msgs[0].media, {});
+                if (buffer) {
+                  const tempDir = path.join(__dirname, 'temp');
+                  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+                  tempPhotoPath = path.join(tempDir, `${slug}_thumb.jpg`);
+                  fs.writeFileSync(tempPhotoPath, buffer);
+                  console.log(`✅ GramJS downloaded fallback thumbnail to ${tempPhotoPath}`);
+                }
+              }
+            } catch (gramErr) {
+              console.error('⚠️ GramJS thumbnail download failed:', gramErr.message);
+            }
           }
-        });
+        }
 
-        if (uploadResponse.data && uploadResponse.data.ok) {
-          thumbnailUrl = uploadResponse.data.url;
-          console.log(`✅ Thumbnail uploaded successfully. CDN URL: ${thumbnailUrl}`);
-        } else {
-          throw new Error(uploadResponse.data.error || 'Unknown upload error');
+        if (tempPhotoPath && fs.existsSync(tempPhotoPath)) {
+          const base64Data = fs.readFileSync(tempPhotoPath, { encoding: 'base64' });
+          fs.unlinkSync(tempPhotoPath);
+
+          console.log(`🖼️ Uploading thumbnail to Website API...`);
+          const uploadResponse = await axios.post(`${WEBSITE_URL}/api/admin/upload`, {
+            filename: `${slug}.jpg`,
+            type: 'thumb',
+            base64Data: base64Data
+          }, {
+            headers: {
+              'Authorization': `Bearer ${GITHUB_TOKEN}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (uploadResponse.data && uploadResponse.data.ok) {
+            thumbnailUrl = uploadResponse.data.url;
+            console.log(`✅ Thumbnail uploaded successfully. CDN URL: ${thumbnailUrl}`);
+          } else {
+            throw new Error(uploadResponse.data.error || 'Unknown upload error');
+          }
         }
       } catch (uploadErr) {
         console.warn(`⚠️ Failed to upload article thumbnail (expired link?):`, uploadErr.message);
@@ -475,7 +502,8 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
     const cleanContent = cleanArticleHtml(bodyHtml);
     let bloggerUrl = '';
     try {
-      bloggerUrl = await publishArticleToBlogger(title, cleanContent, photoUrl) || '';
+      // Use the permanent CDN image URL if uploaded, fallback to original preview url
+      bloggerUrl = await publishArticleToBlogger(title, cleanContent, thumbnailUrl || photoUrl) || '';
     } catch (blogErr) {
       console.warn("⚠️ Failed to publish to Blogger:", blogErr.message);
     }
@@ -678,7 +706,7 @@ bot.on('callback_query', async (query) => {
         
       const slug = generateSlug(cleanTitle, post.id);
 
-      const bloggerUrl = await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl);
+      const bloggerUrl = await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl, post.id);
       console.log('✅ Article pushed to GitHub.');
 
       // 2. Verify the deployed article is reachable before publishing its link.
