@@ -500,6 +500,7 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
 
     if (publishResponse.data && publishResponse.data.ok) {
       console.log(`✅ Article published successfully to database!`);
+      return bloggerUrl;
     } else {
       throw new Error(publishResponse.data.error || 'Unknown publish error');
     }
@@ -677,7 +678,7 @@ bot.on('callback_query', async (query) => {
         
       const slug = generateSlug(cleanTitle, post.id);
 
-      await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl);
+      const bloggerUrl = await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl);
       console.log('✅ Article pushed to GitHub.');
 
       // 2. Verify the deployed article is reachable before publishing its link.
@@ -694,8 +695,15 @@ bot.on('callback_query', async (query) => {
         ]
       };
 
+      // Substitute website link with Blogger link in Telegram channel post text if Blogger URL is available
+      let channelPostText = finalPostText;
+      if (bloggerUrl) {
+        channelPostText = channelPostText.replace(new RegExp(`${WEBSITE_URL}/article/${slug}`, 'g'), bloggerUrl);
+        channelPostText = channelPostText.replace(`📖 <b>Read on Website:</b>`, `📖 <b>Read on Blogger:</b>`);
+      }
+
       let localPath = null;
-      if (post.photoUrl && finalPostText.length <= 1024) {
+      if (post.photoUrl && channelPostText.length <= 1024) {
         try {
           const filename = `post_${post.id}.jpg`;
           localPath = await downloadMedia(post.photoUrl, filename);
@@ -724,13 +732,13 @@ bot.on('callback_query', async (query) => {
 
       if (localPath && fs.existsSync(localPath)) {
         await bot.sendPhoto(TARGET_CHANNEL, localPath, {
-          caption: finalPostText,
+          caption: channelPostText,
           parse_mode: 'HTML',
           reply_markup: channelKeyboard
         });
         fs.rmSync(localPath, { force: true });
       } else {
-        let textToSend = finalPostText;
+        let textToSend = channelPostText;
         if (post.photoUrl) {
           textToSend = `<a href="${post.photoUrl}">&#8203;</a>` + textToSend;
         }
