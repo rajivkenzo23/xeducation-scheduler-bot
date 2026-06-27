@@ -248,6 +248,73 @@ function generateSlug(title, id) {
   return `${slug}-${id}`;
 }
 
+// ============================================================
+// GramJS / MTProto & Streamtape Integration
+// ============================================================
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
+
+let gramjsClient = null;
+
+async function initGramjsClient() {
+  const apiId = parseInt(process.env.TELEGRAM_API_ID, 10);
+  const apiHash = process.env.TELEGRAM_API_HASH;
+  const sessionStr = process.env.TELEGRAM_SESSION;
+
+  if (!apiId || !apiHash || !sessionStr || sessionStr === 'YOUR_TELEGRAM_SESSION_HERE') {
+    console.log("⚠️ GramJS client not initialized: Missing TELEGRAM_API_ID, TELEGRAM_API_HASH, or TELEGRAM_SESSION in CONFIG");
+    return null;
+  }
+
+  try {
+    const stringSession = new StringSession(sessionStr);
+    gramjsClient = new TelegramClient(stringSession, apiId, apiHash, {
+      connectionRetries: 5,
+    });
+    await gramjsClient.connect();
+    console.log("🚀 GramJS client connected successfully!");
+    return gramjsClient;
+  } catch (err) {
+    console.error("❌ Failed to initialize GramJS client:", err.message);
+    return null;
+  }
+}
+
+// Initialize on start
+initGramjsClient();
+
+async function uploadToStreamtape(filePath, filename, progressCallback) {
+  const login = process.env.STREAMTAPE_LOGIN || '15a6b6d591b99774fe65';
+  const key = process.env.STREAMTAPE_KEY || 'De0xQO7DjxUkpwx';
+
+  // 1. Get upload URL
+  const getUrlRes = await axios.get(`https://api.streamtape.com/file/ul?login=${login}&key=${key}`);
+  if (!getUrlRes.data || getUrlRes.data.status !== 200) {
+    throw new Error('Failed to get Streamtape upload URL: ' + (getUrlRes.data?.msg || 'Unknown error'));
+  }
+  const uploadUrl = getUrlRes.data.result.url;
+
+  // 2. Upload file via multipart/form-data
+  const FormData = require('form-data');
+  const form = new FormData();
+  form.append('file1', fs.createReadStream(filePath), filename);
+
+  const uploadRes = await axios.post(uploadUrl, form, {
+    headers: form.getHeaders(),
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+    onUploadProgress: progressCallback
+  });
+
+  if (!uploadRes.data || uploadRes.data.status !== 200) {
+    throw new Error('Upload to Streamtape failed: ' + (uploadRes.data?.msg || 'Unknown error'));
+  }
+
+  const fileId = uploadRes.data.result.id;
+  const embedUrl = `https://streamtape.com/e/${fileId}/`;
+  return { fileId, embedUrl };
+}
+
 // Download media file helper
 async function downloadMedia(url, filename) {
   const safeUrl = safeHttpUrl(url, 'Media URL');
@@ -685,6 +752,177 @@ bot.on('message', async (msg) => {
   const text = msg.text ? msg.text.trim() : null;
 
   if (userId !== ADMIN_ID) return;
+
+  const videoObj = msg.video || (msg.document && msg.document.mime_type?.startsWith('video/') ? msg.document : null);
+
+  if (videoObj) {
+    if (!gramjsClient) {
+      bot.sendMessage(chatId, "⚠️ *MTProto/GramJS Client not initialized!*\n\nPlease configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and run `node session-gen.js` to generate your `TELEGRAM_SESSION` first.", { parse_mode: 'Markdown' });
+      return;
+    }
+
+    const progressMsg = await bot.sendMessage(chatId, "⏳ *Downloading video from Telegram via MTProto...* (This bypasses the 20MB bot limit)", { parse_mode: 'Markdown' });
+    const filename = videoObj.file_name || `video_${Date.now()}.mp4`;
+    const localPath = path.join(TEMP_DIR, filename);
+
+    try {
+      // Get the message using gramjs
+      const messages = await gramjsClient.getMessages(chatId, { ids: [msg.message_id] });
+      if (!messages || messages.length === 0 || !messages[0].media) {
+        throw new Error("Could not find message media via MTProto client.");
+      }
+
+      let lastPercent = -1;
+      await gramjsClient.downloadMedia(messages[0], {
+        outputFile: localPath,
+        progressCallback: (progress) => {
+          let percent = 0;
+          if (typeof progress === 'number') {
+            percent = Math.round(progress * 100);
+          } else if (progress && progress.total) {
+            const loaded = Number(progress.loaded || 0);
+            const total = Number(progress.total || 1);
+            percent = Math.round((loaded / total) * 100);
+          }
+          if (percent > lastPercent + 9 && percent <= 100) {
+            lastPercent = percent;
+            bot.editMessageText(`⏳ *Downloading video via MTProto...* ${percent}%`, {
+              chat_id: chatId,
+              message_id: progressMsg.message_id,
+              parse_mode: 'Markdown'
+            }).catch(() => {});
+          }
+        }
+      });
+
+      await bot.editMessageText("⏳ *Uploading video to Streamtape...*", {
+        chat_id: chatId,
+        message_id: progressMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+
+      // Upload to Streamtape
+      const { embedUrl, fileId } = await uploadToStreamtape(localPath, filename, (progressEvent) => {
+        if (progressEvent && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+          if (percent % 20 === 0) {
+            bot.editMessageText(`⏳ *Uploading video to Streamtape...* ${percent}%`, {
+              chat_id: chatId,
+              message_id: progressMsg.message_id,
+              parse_mode: 'Markdown'
+            }).catch(() => {});
+          }
+        }
+      });
+
+      // Cleanup downloaded file
+      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+
+      // Save upload context
+      adminSession[userId] = {
+        step: 'waiting_video_title',
+        videoData: {
+          fileId: fileId,
+          embedUrl: embedUrl,
+          thumbnail: 'assets/thumbs/default-video.jpg',
+          preview: '',
+          duration: videoObj.duration ? `${Math.floor(videoObj.duration / 60)}:${String(videoObj.duration % 60).padStart(2, '0')}` : '0:00',
+          views: 1500,
+          category: 'entertainment'
+        }
+      };
+
+      await bot.deleteMessage(chatId, progressMsg.message_id).catch(() => {});
+      await bot.sendMessage(chatId, 
+        `✅ *Video successfully uploaded to Streamtape!*\n\n` +
+        `🔗 *Embed URL:* \`${embedUrl}\`\n\n` +
+        `✍️ Please type the *Title* for this video:`,
+        { parse_mode: 'Markdown' }
+      );
+
+    } catch (err) {
+      console.error("❌ Video processing failed:", err.message);
+      if (fs.existsSync(localPath)) {
+        try { fs.unlinkSync(localPath); } catch (_) {}
+      }
+      bot.sendMessage(chatId, `❌ *Video processing failed:* ${err.message}`);
+    }
+    return;
+  }
+
+  // Handle waiting for video title
+  if (adminSession[userId] && adminSession[userId].step === 'waiting_video_title' && text) {
+    const videoData = adminSession[userId].videoData;
+    adminSession[userId] = null; // Clear session
+
+    const title = text;
+    // Generate clean slug
+    const cleanTitle = title
+      .toLowerCase()
+      .replace(/[^\x00-\x7F]/g, '')          // strip non-ASCII
+      .replace(/[^a-z0-9\s-]/g, '')           // strip special chars
+      .trim()
+      .replace(/\s+/g, '-')                   // spaces → hyphens
+      .replace(/-+/g, '-')                    // collapse multiple hyphens
+      .slice(0, 60)
+      || 'video-' + Date.now();
+
+    const slug = cleanTitle;
+
+    const progressMsg = await bot.sendMessage(chatId, `🌐 *Publishing video watch page and updating database...*`, { parse_mode: 'Markdown' });
+
+    try {
+      const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+      if (!GITHUB_TOKEN) throw new Error("GITHUB_TOKEN not configured in .env");
+
+      const postPayload = {
+        id: slug,
+        title: title,
+        description: `${title}. Watch direct embedded video player for free!`,
+        thumbnail: videoData.thumbnail,
+        preview: videoData.preview,
+        duration: videoData.duration,
+        views: videoData.views,
+        category: videoData.category,
+        tags: ['entertainment', 'viral', 'trending'],
+        telegramFileId: videoData.fileId,
+        embedUrl: videoData.embedUrl,
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      const res = await axios.post(`${WEBSITE_URL}/api/admin/posts`, postPayload, {
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!res.data || !res.data.ok) {
+        throw new Error(res.data.error || 'Server rejected post');
+      }
+
+      await bot.editMessageText(
+        `✅ *Video successfully published!*\n\n` +
+        `🌐 *Title:* ${title}\n` +
+        `🔗 *Watch Link:* ${WEBSITE_URL}/watch/${slug}.html\n\n` +
+        `You can now view it directly on the website.`,
+        {
+          chat_id: chatId,
+          message_id: progressMsg.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+
+    } catch (err) {
+      console.error("❌ Failed to publish video:", err.message);
+      bot.editMessageText(`❌ *Failed to publish video:* ${err.message}`, {
+        chat_id: chatId,
+        message_id: progressMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+    }
+    return;
+  }
 
   // Handle Edit session text input
   if (adminSession[userId] && adminSession[userId].step === 'waiting_edit_text' && text) {

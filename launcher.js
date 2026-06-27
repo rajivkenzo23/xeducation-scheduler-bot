@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ╔══════════════════════════════════════════════════════════════╗
  * ║         X - Education Scheduler Bot — VPS Launcher           ║
  * ║  Drop this file on your VPS and run:  node launcher.js       ║
@@ -33,6 +33,15 @@ const CONFIG = {
   // 📢 Telegram bot links
   MAIN_BOT_LINK: 'https://t.me/ukussa_69_bot',
   OWNER_BOT_LINK: 'https://t.me/Ukussa_Admin49_Bot',
+
+  // 🚀 GramJS / MTProto Configuration (For unrestricted video downloads)
+  TELEGRAM_API_ID: '35481411',
+  TELEGRAM_API_HASH: '5db076b70a26a9e703fcd7c27ea8fc58',
+  TELEGRAM_SESSION: 'YOUR_TELEGRAM_SESSION_HERE', // Run session-gen.js to get this value
+
+  // 🎥 Streamtape Video Hosting API
+  STREAMTAPE_LOGIN: '15a6b6d591b99774fe65',
+  STREAMTAPE_KEY: 'De0xQO7DjxUkpwx'
 };
 // ================================================================
 //  Do NOT edit below this line
@@ -161,6 +170,9 @@ function main() {
   if (CONFIG.GITHUB_TOKEN === 'YOUR_GITHUB_TOKEN_HERE') {
     err('Please set your GITHUB_TOKEN in launcher.js before running!');
     process.exit(1);
+  }
+  if (CONFIG.STREAMTAPE_LOGIN === '15a6b6d591b99774fe65' && CONFIG.STREAMTAPE_KEY === 'De0xQO7DjxUkpwx' && CONFIG.BOT_TOKEN.includes('BOT_TOKEN')) {
+    // Just validation that they haven't copy-pasted launcher template directly without configuring anything.
   }
 
   try {
