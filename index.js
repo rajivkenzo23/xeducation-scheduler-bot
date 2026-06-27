@@ -547,7 +547,26 @@ async function sendPostForReview(postIndex) {
         const filename = `preview_${post.id}.jpg`;
         localPath = await downloadMedia(post.photoUrl, filename);
       } catch (dlErr) {
-        console.error('⚠️ Failed to download review photo locally:', dlErr.message);
+        console.error('⚠️ Failed to download review photo locally, attempting GramJS fallback...', dlErr.message);
+        if (gramjsClient && gramjsClient.connected) {
+          try {
+            console.log(`📸 GramJS downloading photo for message ID ${post.id} from source channel...`);
+            const channel = 'Mahavanshaya_xedu';
+            const msgs = await gramjsClient.getMessages(channel, { ids: [post.id] });
+            if (msgs && msgs[0] && msgs[0].media) {
+              const buffer = await gramjsClient.downloadMedia(msgs[0].media, {});
+              if (buffer) {
+                const tempDir = path.join(__dirname, 'temp');
+                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+                localPath = path.join(tempDir, `preview_${post.id}.jpg`);
+                fs.writeFileSync(localPath, buffer);
+                console.log(`✅ GramJS successfully downloaded fallback photo to ${localPath}`);
+              }
+            }
+          } catch (gramErr) {
+            console.error('⚠️ GramJS fallback download failed:', gramErr.message);
+          }
+        }
       }
     }
 
