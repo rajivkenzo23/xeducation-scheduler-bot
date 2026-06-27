@@ -48,7 +48,7 @@ const CONFIG = {
 // ================================================================
 
 const { spawnSync, spawn } = require('child_process');
-const { existsSync, writeFileSync } = require('fs');
+const { existsSync, writeFileSync, readFileSync } = require('fs');
 const path = require('path');
 
 const REPO_URL = 'https://github.com/rajivkenzo23/xeducation-scheduler-bot.git';
@@ -75,11 +75,30 @@ function run(cmd, args, cwd) {
 // ── Write .env ───────────────────────────────────────────────────
 
 function writeEnv() {
-  const lines = Object.entries(CONFIG)
+  let existing = {};
+  if (existsSync(ENV_PATH)) {
+    try {
+      const content = readFileSync(ENV_PATH, 'utf8');
+      content.split('\n').forEach(line => {
+        const parts = line.split('=');
+        if (parts.length >= 2) {
+          const k = parts[0].trim();
+          const v = parts.slice(1).join('=').trim();
+          if (k) existing[k] = v;
+        }
+      });
+    } catch (_) {}
+  }
+
+  // Merge CONFIG into existing (CONFIG takes precedence, but existing custom values are preserved)
+  const merged = { ...existing, ...CONFIG };
+
+  const lines = Object.entries(merged)
     .map(([k, v]) => `${k}=${v}`)
     .join('\n');
+  
   writeFileSync(ENV_PATH, lines + '\n', 'utf8');
-  log('.env written successfully.');
+  log('.env updated and merged successfully.');
 }
 
 // ── Install npm packages ─────────────────────────────────────────
