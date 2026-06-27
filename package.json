@@ -18,7 +18,8 @@
     "node-telegram-bot-api": "^0.64.0",
     "telegram": "^2.22.2",
     "input": "^1.0.1",
-    "form-data": "^4.0.1"
+    "form-data": "^4.0.1",
+    "googleapis": "^140.0.1"
   },
   "overrides": {
     "form-data": "2.5.6"

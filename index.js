@@ -4,6 +4,7 @@ const path = require('path');
 const axios = require('axios');
 const dns = require('dns');
 const { execFile, execFileSync } = require('child_process');
+const { publishArticleToBlogger } = require('./scripts/bloggerPublisher');
 
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
@@ -469,9 +470,18 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
       }
     }
 
-    // 2. Publish Article Metadata and Content to D1 via Website API
-    console.log(`📝 Sending article metadata to D1...`);
+    // 2. Publish to Blogger first
+    console.log(`✍️ Publishing article content to Blogger...`);
     const cleanContent = cleanArticleHtml(bodyHtml);
+    let bloggerUrl = '';
+    try {
+      bloggerUrl = await publishArticleToBlogger(title, cleanContent, photoUrl) || '';
+    } catch (blogErr) {
+      console.warn("⚠️ Failed to publish to Blogger:", blogErr.message);
+    }
+
+    // 3. Publish Article Metadata and Content to D1 via Website API
+    console.log(`📝 Sending article metadata to D1...`);
     const publishResponse = await axios.post(`${WEBSITE_URL}/api/admin/articles`, {
       id: slug,
       title: title,
@@ -479,7 +489,8 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl) {
       thumbnail: thumbnailUrl,
       views: Math.floor(Math.random() * 8000) + 1500,
       category: 'sex-education',
-      tags: ['sex-education', 'srilanka', 'article']
+      tags: ['sex-education', 'srilanka', 'article'],
+      bloggerUrl: bloggerUrl
     }, {
       headers: {
         'Authorization': `Bearer ${GITHUB_TOKEN}`,
