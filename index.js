@@ -1249,19 +1249,59 @@ async function nukeEverything(notifyChatId) {
   try {
     await bot.sendMessage(notifyChatId, '🔄 *Step 1/3:* Deleting all channel messages...', { parse_mode: 'Markdown' });
     let deletedCount = 0;
-    const MAX_MSG_ID = 5000;
-    const BATCH_SIZE = 50;
 
-    for (let msgId = 1; msgId <= MAX_MSG_ID; msgId += BATCH_SIZE) {
-      const batch = [];
-      for (let i = msgId; i < msgId + BATCH_SIZE && i <= MAX_MSG_ID; i++) {
-        batch.push(i);
+    if (gramjsClient && gramjsClient.connected) {
+      const channelUsername = TARGET_CHANNEL.replace('@', '');
+      console.log(`☢️ GramJS deleting channel messages from ${channelUsername}...`);
+      let hasMore = true;
+      let consecutiveEmpty = 0;
+
+      while (hasMore) {
+        const msgs = await gramjsClient.getMessages(channelUsername, { limit: 100 });
+        if (!msgs || msgs.length === 0) {
+          consecutiveEmpty++;
+          if (consecutiveEmpty >= 2) {
+            hasMore = false;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+
+        consecutiveEmpty = 0;
+        const ids = msgs.map(m => m.id);
+        
+        try {
+          await gramjsClient.deleteMessages(channelUsername, ids, { revoke: true });
+          deletedCount += ids.length;
+          console.log(`Deleted batch of ${ids.length} messages. Total deleted: ${deletedCount}`);
+        } catch (delErr) {
+          console.error(`⚠️ GramJS delete batch error:`, delErr.message);
+          hasMore = false;
+          break;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 1200));
+
+        if (msgs.length < 5) {
+          hasMore = false;
+        }
       }
-      const results = await Promise.allSettled(
-        batch.map(id => bot.deleteMessage(TARGET_CHANNEL, id))
-      );
-      deletedCount += results.filter(r => r.status === 'fulfilled').length;
-      await new Promise(resolve => setTimeout(resolve, 300));
+    } else {
+      // Fallback: Bot API deleteMessage (subject to 48-hour limit)
+      const MAX_MSG_ID = 5000;
+      const BATCH_SIZE = 50;
+
+      for (let msgId = 1; msgId <= MAX_MSG_ID; msgId += BATCH_SIZE) {
+        const batch = [];
+        for (let i = msgId; i < msgId + BATCH_SIZE && i <= MAX_MSG_ID; i++) {
+          batch.push(i);
+        }
+        const results = await Promise.allSettled(
+          batch.map(id => bot.deleteMessage(TARGET_CHANNEL, id))
+        );
+        deletedCount += results.filter(r => r.status === 'fulfilled').length;
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
     }
     await bot.sendMessage(notifyChatId, `✅ *Step 1/3 done:* Deleted *${deletedCount}* channel messages.`, { parse_mode: 'Markdown' });
   } catch (err) {

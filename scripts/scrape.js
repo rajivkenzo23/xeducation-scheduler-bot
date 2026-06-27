@@ -5,7 +5,7 @@ const path = require('path');
 
 // Target channel info
 const CHANNEL_NAME = 'Mahavanshaya_xedu';
-const FIRST_POST_ID = 61; // First post as specified by the user
+const FIRST_POST_ID = parseInt(process.env.SCRAPE_START_ID, 10) || 3700;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const OUTPUT_FILE = path.join(DATA_DIR, 'posts.json');
 
