@@ -790,7 +790,7 @@ bot.on('callback_query', async (query) => {
       // Substitute website link with Blogger link in Telegram channel post text if Blogger URL is available
       let channelPostText = finalPostText;
       if (bloggerUrl) {
-        channelPostText = channelPostText.replace(new RegExp(`${WEBSITE_URL}/article/${slug}`, 'g'), bloggerUrl);
+        channelPostText = channelPostText.replace(new RegExp(`${WEBSITE_URL}/article/${slug}\\.html`, 'g'), bloggerUrl);
         channelPostText = channelPostText.replace(`📖 <b>Read on Website:</b>`, `📖 <b>Read on Blogger:</b>`);
       }
 
