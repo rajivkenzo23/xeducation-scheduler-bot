@@ -432,8 +432,8 @@ function cleanArticleHtml(rawHtml) {
 function uploadThumbnailToGithub(slug, base64Data) {
   return new Promise((resolve, reject) => {
     const token = process.env.GITHUB_TOKEN;
-    const repo = process.env.GITHUB_REPO || 'rajivkenzo23/VideoLK';
-    const branch = process.env.GITHUB_BRANCH || 'main';
+    const repo = 'rajivkenzo23/VideoLK-assets'; // Public assets repository
+    const branch = 'main';
     const filepath = `assets/thumbs/${slug}.jpg`;
 
     // 1. Get file SHA if it exists to update it
@@ -484,7 +484,7 @@ function uploadThumbnailToGithub(slug, base64Data) {
           resUpload.on('data', chunk => uploadData += chunk);
           resUpload.on('end', () => {
             if (resUpload.statusCode === 200 || resUpload.statusCode === 201) {
-              const cdnUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${filepath}`;
+              const cdnUrl = `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${filepath}`;
               resolve(cdnUrl);
             } else {
               reject(new Error(`GitHub upload failed: HTTP ${resUpload.statusCode} - ${uploadData}`));
