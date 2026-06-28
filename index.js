@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const dns = require('dns');
+const https = require('https');
 const { execFile, execFileSync } = require('child_process');
 const { publishArticleToBlogger } = require('./scripts/bloggerPublisher');
 
@@ -428,6 +429,80 @@ function cleanArticleHtml(rawHtml) {
   return cleaned;
 }
 
+function uploadThumbnailToGithub(slug, base64Data) {
+  return new Promise((resolve, reject) => {
+    const token = process.env.GITHUB_TOKEN;
+    const repo = process.env.GITHUB_REPO || 'rajivkenzo23/VideoLK';
+    const branch = process.env.GITHUB_BRANCH || 'main';
+    const filepath = `assets/thumbs/${slug}.jpg`;
+
+    // 1. Get file SHA if it exists to update it
+    const getOptions = {
+      hostname: 'api.github.com',
+      path: `/repos/${repo}/contents/${filepath}?ref=${branch}`,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'xeducation-scheduler-bot',
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    };
+
+    const reqGet = https.request(getOptions, (resGet) => {
+      let data = '';
+      resGet.on('data', chunk => data += chunk);
+      resGet.on('end', () => {
+        let sha = null;
+        if (resGet.statusCode === 200) {
+          try {
+            sha = JSON.parse(data).sha;
+          } catch (_) {}
+        }
+        
+        // 2. Upload file
+        const body = {
+          message: `Upload thumbnail for ${slug}`,
+          content: base64Data,
+          branch: branch
+        };
+        if (sha) body.sha = sha;
+
+        const uploadOptions = {
+          hostname: 'api.github.com',
+          path: `/repos/${repo}/contents/${filepath}`,
+          method: 'PUT',
+          headers: {
+            'User-Agent': 'xeducation-scheduler-bot',
+            'Authorization': `token ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        };
+
+        const reqUpload = https.request(uploadOptions, (resUpload) => {
+          let uploadData = '';
+          resUpload.on('data', chunk => uploadData += chunk);
+          resUpload.on('end', () => {
+            if (resUpload.statusCode === 200 || resUpload.statusCode === 201) {
+              const cdnUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${filepath}`;
+              resolve(cdnUrl);
+            } else {
+              reject(new Error(`GitHub upload failed: HTTP ${resUpload.statusCode} - ${uploadData}`));
+            }
+          });
+        });
+
+        reqUpload.on('error', reject);
+        reqUpload.write(JSON.stringify(body));
+        reqUpload.end();
+      });
+    });
+
+    reqGet.on('error', reject);
+    reqGet.end();
+  });
+}
+
 async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   if (!GITHUB_TOKEN || GITHUB_TOKEN === 'YOUR_NEW_GITHUB_TOKEN') {
@@ -472,27 +547,12 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) 
           const base64Data = fs.readFileSync(tempPhotoPath, { encoding: 'base64' });
           fs.unlinkSync(tempPhotoPath);
 
-          console.log(`🖼️ Uploading thumbnail to Website API...`);
-          const uploadResponse = await axios.post(`${WEBSITE_URL}/api/admin/upload`, {
-            filename: `${slug}.jpg`,
-            type: 'thumb',
-            base64Data: base64Data
-          }, {
-            headers: {
-              'Authorization': `Bearer ${GITHUB_TOKEN}`,
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (uploadResponse.data && uploadResponse.data.ok) {
-            thumbnailUrl = uploadResponse.data.url;
-            console.log(`✅ Thumbnail uploaded successfully. CDN URL: ${thumbnailUrl}`);
-          } else {
-            throw new Error(uploadResponse.data.error || 'Unknown upload error');
-          }
+          console.log(`🖼️ Uploading thumbnail directly to GitHub Repo...`);
+          thumbnailUrl = await uploadThumbnailToGithub(slug, base64Data);
+          console.log(`✅ Thumbnail uploaded successfully. CDN URL: ${thumbnailUrl}`);
         }
       } catch (uploadErr) {
-        console.warn(`⚠️ Failed to upload article thumbnail (expired link?):`, uploadErr.message);
+        console.warn(`⚠️ Failed to upload article thumbnail:`, uploadErr.message);
         thumbnailUrl = ''; // Fallback: no thumbnail
       }
     }
