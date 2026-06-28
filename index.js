@@ -220,15 +220,14 @@ function formatPostText(rawHtml, originalId) {
     .slice(0, 120) || `Sex Education Post ${originalId}`;
     
   const slug = generateSlug(cleanTitle, originalId);
-  // Direct article URL — no unlock gate, users can read freely
-  const articleUrl = `${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`;
+  const placeholderUrl = `https://xeducation-2026.blogspot.com/`;
 
-  // Format the FULL post with title header and full body, site link below
+  // Format the FULL post with title header and full body, Blogger link below
   let formatted = `🔞🍃 <b>X - Education</b>\n\n` +
                   `${sanitizeTelegramHtml(cleaned.trim())}\n\n` +
                   `━━━━━━━━━━━━━━\n` +
-                  `📖 <b>Read on Website:</b>\n` +
-                  `👉 <a href="${articleUrl}">${WEBSITE_URL}/article/${slug}</a>\n\n` +
+                  `📖 <b>Read on Blogger:</b>\n` +
+                  `👉 <a href="${placeholderUrl}">${placeholderUrl}</a>\n\n` +
                   `📢 <b>Channel:</b> <a href="https://t.me/THEXEducation">X - Education 🔞🍃</a>`;
 
   return sanitizeTelegramHtml(formatted);
@@ -568,35 +567,11 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) 
       console.warn("⚠️ Failed to publish to Blogger:", blogErr.message);
     }
 
-    // 3. Publish Article Metadata and Content to D1 via Website API
-    console.log(`📝 Sending article metadata to D1...`);
-    const publishResponse = await axios.post(`${WEBSITE_URL}/api/admin/articles`, {
-      id: slug,
-      title: title,
-      content: '', // Full content is only on Blogger
-      thumbnail: thumbnailUrl,
-      views: Math.floor(Math.random() * 8000) + 1500,
-      category: 'sex-education',
-      tags: ['sex-education', 'srilanka', 'article'],
-      bloggerUrl: bloggerUrl
-    }, {
-      headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (publishResponse.data && publishResponse.data.ok) {
-      console.log(`✅ Article published successfully to database!`);
-      return bloggerUrl;
-    } else {
-      throw new Error(publishResponse.data.error || 'Unknown publish error');
-    }
+    return bloggerUrl;
 
   } catch (err) {
-    const errorDetails = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
-    console.error('❌ Failed to publish article to website:', errorDetails);
-    throw new Error(`Failed to publish article: ${errorDetails}`);
+    console.error('❌ Failed to publish article to Blogger:', err.message);
+    throw new Error(`Failed to publish article: ${err.message}`);
   }
 }
 
@@ -749,9 +724,9 @@ bot.on('callback_query', async (query) => {
         }
       };
 
-      await updateAdminStatus(`🌐 *Publishing article to website and pushing to GitHub...*\nPlease wait.`);
+      await updateAdminStatus(`🌐 *Publishing article to Blogger...*\nPlease wait.`);
 
-      // 1. Publish to website first (and await Git push completion)
+      // 1. Publish to Blogger
       const cleanTitle = post.textHtml
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<\/p>/gi, '\n')
@@ -767,17 +742,8 @@ bot.on('callback_query', async (query) => {
       const slug = generateSlug(cleanTitle, post.id);
 
       const bloggerUrl = await publishArticleToWebsite(slug, cleanTitle, post.textHtml, post.photoUrl, post.id);
-      console.log('✅ Article pushed to GitHub.');
 
-      // 2. Verify the deployed article is reachable (non-blocking check)
-      try {
-        await updateAdminStatus('⏳ *Website updated!* Checking article page status...');
-        await waitForPublishedUrl(`${WEBSITE_URL}/article/${encodeURIComponent(slug)}.html`, 6, 5000); // 30s max check
-      } catch (checkErr) {
-        console.warn(`⚠️ Article page reachability check warning: ${checkErr.message}. Continuing...`);
-      }
-
-      // 3. Post to the Telegram Channel with inline buttons
+      // 2. Post to the Telegram Channel with inline buttons
       const channelKeyboard = {
         inline_keyboard: [
           [
@@ -787,11 +753,10 @@ bot.on('callback_query', async (query) => {
         ]
       };
 
-      // Substitute website link with Blogger link in Telegram channel post text if Blogger URL is available
+      // Substitute placeholder Blogger link with actual Blogger link in Telegram channel post text
       let channelPostText = finalPostText;
       if (bloggerUrl) {
-        channelPostText = channelPostText.replace(new RegExp(`${WEBSITE_URL}/article/${slug}\\.html`, 'g'), bloggerUrl);
-        channelPostText = channelPostText.replace(`📖 <b>Read on Website:</b>`, `📖 <b>Read on Blogger:</b>`);
+        channelPostText = channelPostText.replace(/https:\/\/xeducation-2026\.blogspot\.com\//g, bloggerUrl);
       }
 
       let localPath = null;
