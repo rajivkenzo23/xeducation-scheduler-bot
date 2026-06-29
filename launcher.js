@@ -101,12 +101,9 @@ function writeEnv() {
 }
 
 function installDeps() {
-  log('Checking dependencies...');
-  try {
-    run('npm', ['install', '--prefer-offline', '--no-audit', '--no-fund'], BOT_DIR);
-  } catch (e) {
-    err(`Npm install failed: ${e.message}`);
-  }
+  log('Installing npm dependencies...');
+  run('npm', ['install', '--no-audit', '--no-fund'], BOT_DIR);
+  log('Dependencies installed successfully.');
 }
 
 function startBot() {
