@@ -273,11 +273,25 @@ async function initGramjsClient() {
       connectionRetries: 5,
     });
     await gramjsClient.connect();
-    console.log("🚀 GramJS client connected successfully!");
+    console.log("🚀 GramJS User Client connected successfully!");
     return gramjsClient;
   } catch (err) {
-    console.error("❌ Failed to initialize GramJS client:", err.message);
-    return null;
+    console.error("❌ Failed to connect GramJS User Client:", err.message);
+    
+    console.log("⚠️ User session failed. Initializing GramJS as Bot Client...");
+    try {
+      gramjsClient = new TelegramClient(new StringSession(""), apiId, apiHash, {
+        connectionRetries: 5,
+      });
+      await gramjsClient.start({
+        botToken: process.env.BOT_TOKEN
+      });
+      console.log("🚀 GramJS Bot Client fallback connected successfully!");
+      return gramjsClient;
+    } catch (botErr) {
+      console.error("❌ Failed to connect GramJS Bot Client fallback:", botErr.message);
+      return null;
+    }
   }
 }
 
