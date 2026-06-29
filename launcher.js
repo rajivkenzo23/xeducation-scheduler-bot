@@ -73,31 +73,35 @@ function cloneOrPull() {
 function writeEnv() {
   log('Writing configuration to .env file...');
   let existing = {};
-  
-  // Try to preserve existing custom .env keys
+
+  // Read existing .env so user-set values are preserved
   if (fs.existsSync(ENV_PATH)) {
     try {
       const content = fs.readFileSync(ENV_PATH, 'utf8');
       content.split('\n').forEach(line => {
-        const parts = line.split('=');
-        if (parts.length >= 2) {
-          const k = parts[0].trim();
-          const v = parts.slice(1).join('=').trim();
-          if (k) existing[k] = v;
+        const eqIdx = line.indexOf('=');
+        if (eqIdx === -1) return;
+        const k = line.slice(0, eqIdx).trim();
+        let v = line.slice(eqIdx + 1).trim();
+        // Strip surrounding quotes if present
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+          v = v.slice(1, -1);
         }
+        if (k) existing[k] = v;
       });
     } catch (_) {}
   }
 
-  // Merge (CONFIG takes precedence, but custom keys are preserved)
-  const merged = { ...existing, ...CONFIG };
+  // Merge: existing .env values WIN over CONFIG defaults
+  // This means any value the user manually set is never overwritten
+  const merged = { ...CONFIG, ...existing };
 
   const lines = Object.entries(merged)
     .map(([k, v]) => `${k}=${v}`)
     .join('\n');
 
   fs.writeFileSync(ENV_PATH, lines + '\n', 'utf8');
-  log('.env file updated.');
+  log('.env file updated (existing values preserved).');
 }
 
 function installDeps() {
