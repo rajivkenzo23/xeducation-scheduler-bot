@@ -1,67 +1,42 @@
 /**
  * ╔══════════════════════════════════════════════════════════════╗
- * ║         X - Education Scheduler Bot — VPS Launcher           ║
- * ║  Drop this file on your VPS and run:  node launcher.js       ║
- * ║  It will clone/update the bot, write .env, and start it.     ║
+ * ║             X - Education Scheduler Bot — Launcher           ║
+ * ║  Drop this file on your Pterodactyl server as launcher.js    ║
+ * ║  Set Startup file to launcher.js                             ║
  * ╚══════════════════════════════════════════════════════════════╝
- *
- * ✏️  FILL IN YOUR VALUES BELOW BEFORE RUNNING
  */
-
-// ================================================================
-//  ⚙️  CONFIGURATION — Edit these values
-// ================================================================
-const CONFIG = {
-  // 🔑 Telegram Bot Token (from @BotFather)
-  BOT_TOKEN: 'YOUR_BOT_TOKEN_HERE',
-
-  // 👤 Your Telegram User ID (get it from @userinfobot)
-  ADMIN_ID: 'YOUR_TELEGRAM_ID_HERE',
-
-  // 📢 Telegram channel username (with @)
-  TARGET_CHANNEL_USERNAME: '@THEXEducation',
-
-  // 🌐 Your website URL
-  WEBSITE_URL: 'https://videoslk.eu.cc',
-
-  // 🔑 GitHub Personal Access Token (for pushing articles to website repo)
-  GITHUB_TOKEN: 'YOUR_GITHUB_TOKEN_HERE',
-
-  // 💚 WhatsApp Channel link
-  WHATSAPP_CHANNEL: 'https://whatsapp.com/channel/0029VbA9drwBadmctNhZGN3S',
-
-  // 📢 Telegram bot links
-  MAIN_BOT_LINK: 'https://t.me/ukussa_69_bot',
-  OWNER_BOT_LINK: 'https://t.me/Ukussa_Admin49_Bot',
-
-  // 🚀 GramJS / MTProto Configuration (For unrestricted video downloads)
-  TELEGRAM_API_ID: '35481411',
-  TELEGRAM_API_HASH: '5db076b70a26a9e703fcd7c27ea8fc58',
-  TELEGRAM_SESSION: 'YOUR_TELEGRAM_SESSION_HERE', // Run session-gen.js to get this value
-
-  // 🎥 Streamtape Video Hosting API
-  STREAMTAPE_LOGIN: '15a6b6d591b99774fe65',
-  STREAMTAPE_KEY: 'De0xQO7DjxUkpwx'
-};
-// ================================================================
-//  Do NOT edit below this line
-// ================================================================
-
 const { spawnSync, spawn } = require('child_process');
-const { existsSync, writeFileSync, readFileSync } = require('fs');
+const fs = require('fs');
 const path = require('path');
 
+// ⚙️ Configurations (Default fallbacks — will be overridden by Panel Startup Env if present)
+const CONFIG = {
+  BOT_TOKEN: process.env.BOT_TOKEN || '8867230082:AAH02oTb9Dw3gtX622fiAxEMz1kn3wX1ntA',
+  ADMIN_ID: process.env.ADMIN_ID || '8667419475',
+  TARGET_CHANNEL_USERNAME: process.env.TARGET_CHANNEL_USERNAME || '@THEXEducation',
+  WEBSITE_URL: process.env.WEBSITE_URL || 'https://videoslk.eu.cc',
+  MAIN_BOT_LINK: process.env.MAIN_BOT_LINK || 'https://t.me/ukussa_69_bot',
+  OWNER_BOT_LINK: process.env.OWNER_BOT_LINK || 'https://t.me/Ukussa_Admin49_Bot',
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN || 'YOUR_GITHUB_TOKEN_HERE',
+  GITHUB_USERNAME: 'rajivkenzo23',
+  GITHUB_REPO: 'rajivkenzo23/VideoLK',
+  GITHUB_BRANCH: 'main',
+  TELEGRAM_API_ID: process.env.TELEGRAM_API_ID || '35481411',
+  TELEGRAM_API_HASH: process.env.TELEGRAM_API_HASH || '5db076b70a26a9e703fcd7c27ea8fc58',
+  TELEGRAM_SESSION: process.env.TELEGRAM_SESSION || '',
+  STREAMTAPE_LOGIN: process.env.STREAMTAPE_LOGIN || '15a6b6d591b99774fe65',
+  STREAMTAPE_KEY: process.env.STREAMTAPE_KEY || 'De0xQO7DjxUkpwx'
+};
+
 const REPO_URL = 'https://github.com/rajivkenzo23/xeducation-scheduler-bot.git';
-const BOT_DIR  = existsSync(path.join(__dirname, 'index.js')) ? '.' : 'xeducation-scheduler-bot';
-const ENV_PATH = path.join(__dirname, BOT_DIR === '.' ? '' : BOT_DIR, '.env');
+const BOT_DIR = __dirname;
+const ENV_PATH = path.join(BOT_DIR, '.env');
 
-// Restart throttle
-let restartCount    = 0;
-const MAX_RESTARTS   = 10;
-const RESTART_WINDOW = 60000; // 1 minute
-let lastRestartTime  = Date.now();
-
-// ── Helpers ──────────────────────────────────────────────────────
+// Restart variables
+let restartCount = 0;
+const MAX_RESTARTS = 10;
+const RESTART_WINDOW = 60000;
+let lastRestartTime = Date.now();
 
 function log(msg) { console.log(`[Launcher] ${msg}`); }
 function err(msg) { console.error(`[Launcher] ❌ ${msg}`); }
@@ -72,13 +47,37 @@ function run(cmd, args, cwd) {
   if (result.status !== 0) throw new Error(`${cmd} exited with code ${result.status}`);
 }
 
-// ── Write .env ───────────────────────────────────────────────────
+function cloneOrPull() {
+  log('Checking git repository status...');
+  if (!fs.existsSync(path.join(BOT_DIR, '.git'))) {
+    log('Initializing new Git repository...');
+    run('git', ['init'], BOT_DIR);
+    run('git', ['remote', 'add', 'origin', REPO_URL], BOT_DIR);
+  } else {
+    // Update remote URL in case it changed
+    try {
+      run('git', ['remote', 'set-url', 'origin', REPO_URL], BOT_DIR);
+    } catch (_) {}
+  }
+
+  log('Pulling latest files from GitHub...');
+  try {
+    run('git', ['fetch', 'origin', 'main'], BOT_DIR);
+    run('git', ['reset', '--hard', 'origin/main'], BOT_DIR);
+    log('Files updated successfully.');
+  } catch (e) {
+    err(`Git update failed: ${e.message}`);
+  }
+}
 
 function writeEnv() {
+  log('Writing configuration to .env file...');
   let existing = {};
-  if (existsSync(ENV_PATH)) {
+  
+  // Try to preserve existing custom .env keys
+  if (fs.existsSync(ENV_PATH)) {
     try {
-      const content = readFileSync(ENV_PATH, 'utf8');
+      const content = fs.readFileSync(ENV_PATH, 'utf8');
       content.split('\n').forEach(line => {
         const parts = line.split('=');
         if (parts.length >= 2) {
@@ -90,53 +89,32 @@ function writeEnv() {
     } catch (_) {}
   }
 
-  // Merge CONFIG into existing (CONFIG takes precedence, but existing custom values are preserved)
+  // Merge (CONFIG takes precedence, but custom keys are preserved)
   const merged = { ...existing, ...CONFIG };
 
   const lines = Object.entries(merged)
     .map(([k, v]) => `${k}=${v}`)
     .join('\n');
-  
-  writeFileSync(ENV_PATH, lines + '\n', 'utf8');
-  log('.env updated and merged successfully.');
-}
 
-// ── Install npm packages ─────────────────────────────────────────
+  fs.writeFileSync(ENV_PATH, lines + '\n', 'utf8');
+  log('.env file updated.');
+}
 
 function installDeps() {
-  log('Installing npm dependencies...');
-  run('npm', ['install', '--prefer-offline', '--no-audit', '--no-fund'], BOT_DIR);
-  log('Dependencies installed.');
-}
-
-// ── Clone or Pull ────────────────────────────────────────────────
-
-function cloneOrPull() {
-  if (BOT_DIR === '.') {
-    log('Running inside repository. Skipping git clone/pull via launcher.');
-    return;
-  }
-  if (!existsSync(BOT_DIR)) {
-    log(`Cloning repo from ${REPO_URL} ...`);
-    run('git', ['clone', REPO_URL, BOT_DIR]);
-    log('Clone complete.');
-  } else {
-    log('Repo already exists. Pulling latest changes...');
-    run('git', ['fetch', '--all'], BOT_DIR);
-    run('git', ['reset', '--hard', 'origin/main'], BOT_DIR);
-    log('Pull complete.');
+  log('Checking dependencies...');
+  try {
+    run('npm', ['install', '--prefer-offline', '--no-audit', '--no-fund'], BOT_DIR);
+  } catch (e) {
+    err(`Npm install failed: ${e.message}`);
   }
 }
-
-// ── Start the Bot ────────────────────────────────────────────────
 
 function startBot() {
-  log('Starting Bot daemon loop...');
-
+  log('Starting X-Education scheduler bot process...');
   const child = spawn('node', ['index.js'], {
     cwd: BOT_DIR,
     stdio: 'inherit',
-    shell: false,
+    shell: false
   });
 
   child.on('error', (error) => {
@@ -146,67 +124,37 @@ function startBot() {
 
   child.on('exit', (code, signal) => {
     if (code === 0) {
-      log('Bot exited cleanly (code 0). Not restarting.');
+      log('Bot exited cleanly (code 0).');
       return;
     }
-    log(`Bot process exited. Code: ${code}, Signal: ${signal}`);
+    err(`Bot process exited with code ${code} and signal ${signal}`);
     scheduleRestart();
   });
 }
 
 function scheduleRestart() {
   const now = Date.now();
-
   if (now - lastRestartTime > RESTART_WINDOW) {
     restartCount = 0;
   }
-
   lastRestartTime = now;
   restartCount++;
 
   if (restartCount > MAX_RESTARTS) {
-    err(`Bot has crashed ${MAX_RESTARTS} times in ${RESTART_WINDOW / 1000}s. Stopping restarts.`);
-    err('Fix the error above, then run: node launcher.js');
+    err(`Bot has crashed ${MAX_RESTARTS} times in ${RESTART_WINDOW / 1000}s. Stopping.`);
     process.exit(1);
   }
 
-  const delay = Math.min(5000 * restartCount, 30000);
-  log(`Restarting in ${delay / 1000}s ... (Attempt ${restartCount}/${MAX_RESTARTS})`);
-  setTimeout(startBot, delay);
+  const delayMs = Math.min(3000 * restartCount, 30000);
+  log(`Restarting bot in ${delayMs / 1000}s...`);
+  setTimeout(startBot, delayMs);
 }
 
-// ── Main ─────────────────────────────────────────────────────────
-
 function main() {
-  log('══════════════════════════════════════════');
-  log('  X - Education Scheduler Bot Launcher    ');
-  log('══════════════════════════════════════════');
-
-  if (CONFIG.BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') {
-    err('Please set your BOT_TOKEN in launcher.js before running!');
-    process.exit(1);
-  }
-  if (CONFIG.ADMIN_ID === 'YOUR_TELEGRAM_ID_HERE') {
-    err('Please set your ADMIN_ID in launcher.js before running!');
-    process.exit(1);
-  }
-  if (CONFIG.GITHUB_TOKEN === 'YOUR_GITHUB_TOKEN_HERE') {
-    err('Please set your GITHUB_TOKEN in launcher.js before running!');
-    process.exit(1);
-  }
-  if (CONFIG.STREAMTAPE_LOGIN === '15a6b6d591b99774fe65' && CONFIG.STREAMTAPE_KEY === 'De0xQO7DjxUkpwx' && CONFIG.BOT_TOKEN.includes('BOT_TOKEN')) {
-    // Just validation that they haven't copy-pasted launcher template directly without configuring anything.
-  }
-
-  try {
-    cloneOrPull();
-    writeEnv();
-    installDeps();
-    startBot();
-  } catch (e) {
-    err(e.message);
-    process.exit(1);
-  }
+  cloneOrPull();
+  writeEnv();
+  installDeps();
+  startBot();
 }
 
 main();
