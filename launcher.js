@@ -102,7 +102,9 @@ function writeEnv() {
 
 function installDeps() {
   log('Installing npm dependencies...');
-  run('npm', ['install', '--no-audit', '--no-fund'], BOT_DIR);
+  // --ignore-scripts skips native C++ builds (bufferutil/utf-8-validate)
+  // which fail on low-disk servers. Both have pure-JS fallbacks that work fine.
+  run('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts'], BOT_DIR);
   log('Dependencies installed successfully.');
 }
 
