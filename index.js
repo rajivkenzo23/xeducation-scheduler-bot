@@ -178,7 +178,7 @@ if (posts.length === 0) {
 const adminSession = {};
 
 // Clean and format post text — sends FULL content, site link at bottom
-function formatPostText(rawHtml, originalId) {
+function formatPostText(rawHtml, originalId, postIndex) {
   if (!rawHtml) return '';
 
   // 1. Replace block/break tags with newlines before stripping
@@ -227,8 +227,12 @@ function formatPostText(rawHtml, originalId) {
                   `${sanitizeTelegramHtml(cleaned.trim())}\n\n` +
                   `━━━━━━━━━━━━━━\n` +
                   `📖 <b>Read on Blogger:</b>\n` +
-                  `👉 <a href="${placeholderUrl}">${placeholderUrl}</a>\n\n` +
+                  `👉 <a href="${placeholderUrl}">${placeholderUrl}</a>\n` +
                   `📢 <b>Channel:</b> <a href="https://t.me/THEXEducation">X - Education 🔞🍃</a>`;
+
+  if (typeof postIndex === 'number') {
+    formatted += `\n🔢 <b>Post Index:</b> <code>${postIndex}</code>`;
+  }
 
   return sanitizeTelegramHtml(formatted);
 }
@@ -600,7 +604,7 @@ async function sendPostForReview(postIndex) {
   state.reviewingId = post.id;
   saveState();
 
-  const formattedText = formatPostText(post.textHtml, post.id);
+  const formattedText = formatPostText(post.textHtml, post.id, postIndex);
 
   const keyboard = {
     inline_keyboard: [
@@ -715,7 +719,8 @@ bot.on('callback_query', async (query) => {
     saveState();
 
     // Cleaned Text
-    const originalText = formatPostText(post.textHtml, post.id);
+    const postIndex = posts.findIndex(p => p.id === postId);
+    const originalText = formatPostText(post.textHtml, post.id, postIndex !== -1 ? postIndex : undefined);
     const finalPostText = sanitizeTelegramHtml(adminSession[adminId]?.editedText || originalText);
 
     try {

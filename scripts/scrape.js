@@ -78,6 +78,14 @@ async function scrapePage(beforeId = null) {
         const match = style.match(/background-image:\s*url\(['"]?([^'"]+)['"]?\)/);
         if (match) photoUrl = match[1];
       }
+      if (!photoUrl) {
+        const previewEl = $el.find('.tgme_widget_message_link_preview_image, .tgme_widget_message_link_preview');
+        if (previewEl.length > 0) {
+          const style = previewEl.attr('style') || '';
+          const match = style.match(/background-image:\s*url\(['"]?([^'"]+)['"]?\)/);
+          if (match) photoUrl = match[1];
+        }
+      }
 
       let videoUrl = '';
       const videoEl = $el.find('.tgme_widget_message_video');
@@ -210,8 +218,12 @@ async function main() {
             .replace(/\n/g, '<br>');
 
           let photoUrl = '';
-          if (msg.media && msg.media.photo) {
-            photoUrl = `telegram_media_${msg.id}`; // Flags media exists for GramJS fallback download
+          if (msg.media) {
+            if (msg.media.photo) {
+              photoUrl = `telegram_media_${msg.id}`; // Flags media exists for GramJS fallback download
+            } else if (msg.media.webpage && msg.media.webpage.photo) {
+              photoUrl = `telegram_media_${msg.id}`; // Flags media exists for webpage preview
+            }
           }
 
           allPosts[msg.id] = {
