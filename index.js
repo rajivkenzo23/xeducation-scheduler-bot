@@ -1,4 +1,7 @@
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBotModule = require('node-telegram-bot-api');
+const TelegramBot = typeof TelegramBotModule === 'function'
+  ? TelegramBotModule
+  : (TelegramBotModule.default || TelegramBotModule.TelegramBot || TelegramBotModule);
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
