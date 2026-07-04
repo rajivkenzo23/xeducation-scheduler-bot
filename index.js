@@ -291,7 +291,7 @@ async function initGramjsClient() {
         connectionRetries: 5,
       });
       await gramjsClient.start({
-        botToken: process.env.BOT_TOKEN
+        botAuthToken: BOT_TOKEN
       });
       console.log("🚀 GramJS Bot Client fallback connected successfully!");
       return gramjsClient;
