@@ -64,9 +64,9 @@ bot.deleteWebHook()
 const DATA_DIR = __dirname.endsWith('bot-repo')
   ? path.join(__dirname, '..', 'data')
   : path.join(__dirname, 'data');
-const STATE_FILE = path.join(DATA_DIR, 'state.json');
-const POSTS_FILE = path.join(DATA_DIR, 'posts.json');
 const TEMP_DIR = path.join(__dirname, 'temp');
+const STATE_FILE = path.join(TEMP_DIR, 'state.json');
+const POSTS_FILE = path.join(DATA_DIR, 'posts.json');
 
 // Ensure directories exist
 [DATA_DIR, TEMP_DIR].forEach(dir => {
@@ -769,16 +769,23 @@ bot.on('callback_query', async (query) => {
       const channelKeyboard = {
         inline_keyboard: [
           [
+            { text: '👉 Click Here to Watch', url: bloggerUrl || 'https://xeducation-2026.blogspot.com/' }
+          ],
+          [
             { text: '📢 Join Telegram Channel', url: 'https://t.me/THEXEducation' },
             { text: '💚 Join WhatsApp Channel', url: WHATSAPP_CHANNEL }
           ]
         ]
       };
 
-      // Substitute placeholder Blogger link with actual Blogger link in Telegram channel post text
-      let channelPostText = finalPostText;
-      if (bloggerUrl) {
-        channelPostText = channelPostText.replace(/https:\/\/xeducation-2026\.blogspot\.com\//g, bloggerUrl);
+      // Only title and index on Telegram channel post
+      let channelPostText = `🔞🍃 <b>X - Education</b>\n\n` +
+                            `<b>${cleanTitle}</b>\n\n` +
+                            `━━━━━━━━━━━━━━\n` +
+                            `📢 <b>Channel:</b> <a href="https://t.me/THEXEducation">X - Education 🔞🍃</a>`;
+
+      if (typeof postIndex === 'number') {
+        channelPostText += `\n🔢 <b>Post Index:</b> <code>${postIndex}</code>`;
       }
 
       let localPath = null;
