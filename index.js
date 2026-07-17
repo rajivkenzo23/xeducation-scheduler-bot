@@ -580,12 +580,9 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) 
     // 2. Publish to Blogger first
     console.log(`✍️ Publishing article content to Blogger...`);
     const cleanContent = cleanArticleHtml(bodyHtml);
-    let bloggerUrl = '';
-    try {
-      // Use the permanent CDN image URL if uploaded, fallback to original preview url
-      bloggerUrl = await publishArticleToBlogger(title, cleanContent, thumbnailUrl || photoUrl) || '';
-    } catch (blogErr) {
-      console.warn("⚠️ Failed to publish to Blogger:", blogErr.message);
+    const bloggerUrl = await publishArticleToBlogger(title, cleanContent, thumbnailUrl || photoUrl);
+    if (!bloggerUrl) {
+      throw new Error('Blogger API publication failed or returned an empty URL.');
     }
 
     return bloggerUrl;
@@ -769,7 +766,7 @@ bot.on('callback_query', async (query) => {
       const channelKeyboard = {
         inline_keyboard: [
           [
-            { text: '👉 Click Here to Watch', url: bloggerUrl || 'https://xeducation-2026.blogspot.com/' }
+            { text: '👉 Click Here to see Full Post', url: bloggerUrl || 'https://xeducation-2026.blogspot.com/' }
           ],
           [
             { text: '📢 Join Telegram Channel', url: 'https://t.me/THEXEducation' },
@@ -996,6 +993,7 @@ bot.on('message', async (msg) => {
                     `• \`/setindex [number]\` - Set the queue index to a specific post number.\n` +
                     `• \`/toggle\` - Enable or pause the automatic 24-hour scheduler.\n` +
                     `• \`/reset\` - Reset bot index and history (keeps channel posts and DB).\n` +
+                    `• \`/retry [postId]\` - Remove a post ID from publication history to allow retry.\n` +
                     `• \`/post [number]\` - Force-send a specific post by index to your DM.\n` +
                     `• \`/scrape\` - Re-scrape historical posts from the Telegram channel.\n` +
                     `• \`/deletechannel\` - Delete ALL messages from the channel.\n` +
@@ -1034,6 +1032,18 @@ bot.on('message', async (msg) => {
       state.publishingPostId = null;
       saveState();
       bot.sendMessage(chatId, `🔄 *Scheduler Bot Memory has been fully reset!* Index is at 0, and all published history has been cleared.`);
+    }
+    else if (command === '/retry') {
+      const pId = parseInt(arg, 10);
+      if (isNaN(pId)) {
+        bot.sendMessage(chatId, `❌ *Invalid Post ID!* Use: \`/retry [postId]\``, { parse_mode: 'Markdown' });
+        return;
+      }
+      state.publishedPostIds = state.publishedPostIds.filter(id => id !== pId);
+      if (state.publishingPostId === pId) state.publishingPostId = null;
+      if (state.reviewingId === pId) state.reviewingId = null;
+      saveState();
+      bot.sendMessage(chatId, `✅ *Post ID ${pId} has been removed from published history.* You can now trigger and approve it again!`, { parse_mode: 'Markdown' });
     }
     else if (command === '/post') {
       const idx = parseInt(arg, 10);
