@@ -137,6 +137,15 @@ function sanitizeTelegramHtml(value) {
     });
 }
 
+function truncateTextForTelegram(text, maxLength = 3800) {
+  if (!text || text.length <= maxLength) return text || '';
+  const notice = '\n\n<i>... [Text truncated for Telegram review limit. Full article will publish to Blogger]</i>';
+  const allowedLen = maxLength - notice.length;
+  let truncated = text.slice(0, Math.max(100, allowedLen));
+  truncated = truncated.replace(/<[^>]*$/g, '');
+  return truncated + notice;
+}
+
 // Load scraped posts
 let posts = [];
 function loadPosts() {
@@ -261,6 +270,8 @@ function generateSlug(title, id) {
 // ============================================================
 const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
+const { Logger } = require("telegram/extensions/Logger");
+try { Logger.setLevel("error"); } catch (_) {}
 
 let gramjsClient = null;
 
@@ -619,7 +630,7 @@ async function sendPostForReview(postIndex) {
   };
 
   const draftHeader = `📝 <b>DAILY REVIEW DRAFT</b> (Post ID: ${post.id}, Queue Index: ${postIndex})\n\n`;
-  const fullReviewText = draftHeader + formattedText;
+  const safeReviewText = truncateTextForTelegram(draftHeader + formattedText, 3800);
 
   let localPath = null;
   try {
@@ -653,9 +664,9 @@ async function sendPostForReview(postIndex) {
     }
 
     // Send as native photo only if combined text fits safely in caption limit (950 chars for safety)
-    if (localPath && fullReviewText.length <= 950) {
+    if (localPath && safeReviewText.length <= 950) {
       sentMsg = await bot.sendPhoto(ADMIN_ID, localPath, {
-        caption: fullReviewText,
+        caption: safeReviewText,
         parse_mode: 'HTML',
         reply_markup: keyboard
       });
@@ -664,7 +675,7 @@ async function sendPostForReview(postIndex) {
       if (localPath) {
         await bot.sendPhoto(ADMIN_ID, localPath).catch(err => console.error('⚠️ Failed to pre-send photo:', err.message));
       }
-      sentMsg = await bot.sendMessage(ADMIN_ID, fullReviewText, {
+      sentMsg = await bot.sendMessage(ADMIN_ID, safeReviewText, {
         parse_mode: 'HTML',
         reply_markup: keyboard
       });
@@ -673,9 +684,9 @@ async function sendPostForReview(postIndex) {
     saveState();
   } catch (error) {
     console.error('❌ Failed to send review message to admin:', error.message);
-    // Fallback to text-only if media fails
     try {
-      const sentMsg = await bot.sendMessage(ADMIN_ID, `⚠️ <b>Media Failed to Load. Text Draft:</b>\n\n${formattedText}`, {
+      const fallbackText = truncateTextForTelegram(`⚠️ <b>Review Draft (Post ID: ${post.id}):</b>\n\n${formattedText}`, 3800);
+      const sentMsg = await bot.sendMessage(ADMIN_ID, fallbackText, {
         parse_mode: 'HTML',
         reply_markup: keyboard
       });
@@ -683,6 +694,16 @@ async function sendPostForReview(postIndex) {
       saveState();
     } catch (e) {
       console.error('❌ Critical failure sending draft:', e.message);
+      try {
+        const emergencyMsg = await bot.sendMessage(ADMIN_ID, `📝 <b>DAILY REVIEW DRAFT</b> (Post ID: ${post.id}, Queue Index: ${postIndex})\n\n⚠️ <i>Post content exceeds Telegram display limit. Click below to approve publication to Blogger.</i>`, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+        state.reviewMessageId = emergencyMsg.message_id;
+        saveState();
+      } catch (e2) {
+        console.error('❌ Emergency fallback failed:', e2.message);
+      }
     }
   } finally {
     if (localPath && fs.existsSync(localPath)) {
@@ -925,7 +946,7 @@ bot.on('message', async (msg) => {
     };
 
     const draftHeader = `📝 <b>EDITED DRAFT</b> (Post ID: ${postId})\n\n`;
-    const fullDraftText = draftHeader + text;
+    const safeDraftText = truncateTextForTelegram(draftHeader + text, 3800);
 
     let localPath = null;
     try {
@@ -938,9 +959,9 @@ bot.on('message', async (msg) => {
         }
       }
 
-      if (localPath && fullDraftText.length <= 950) {
+      if (localPath && safeDraftText.length <= 950) {
         await bot.sendPhoto(ADMIN_ID, localPath, {
-          caption: fullDraftText,
+          caption: safeDraftText,
           parse_mode: 'HTML',
           reply_markup: keyboard
         });
@@ -948,7 +969,7 @@ bot.on('message', async (msg) => {
         if (localPath) {
           await bot.sendPhoto(ADMIN_ID, localPath).catch(err => console.error('⚠️ Failed to pre-send photo:', err.message));
         }
-        await bot.sendMessage(ADMIN_ID, fullDraftText, {
+        await bot.sendMessage(ADMIN_ID, safeDraftText, {
           parse_mode: 'HTML',
           reply_markup: keyboard
         });
@@ -956,7 +977,8 @@ bot.on('message', async (msg) => {
     } catch (error) {
       console.error('❌ Failed to send edited review message to admin:', error.message);
       try {
-        await bot.sendMessage(ADMIN_ID, `⚠️ <b>Media Failed. Edited Text Draft:</b>\n\n${text}`, {
+        const fallbackText = truncateTextForTelegram(`⚠️ <b>Edited Text Draft:</b>\n\n${text}`, 3800);
+        await bot.sendMessage(ADMIN_ID, fallbackText, {
           parse_mode: 'HTML',
           reply_markup: keyboard
         });
