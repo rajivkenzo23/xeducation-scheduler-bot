@@ -51,7 +51,7 @@ if (process.env.TELEGRAM_API_URL) {
 
 const bot = new TelegramBot(BOT_TOKEN, botOptions);
 
-bot.deleteWebHook()
+bot.deleteWebhook()
   .then(() => {
     console.log('🔄 Webhook cleared successfully. Starting polling...');
     return bot.startPolling();
