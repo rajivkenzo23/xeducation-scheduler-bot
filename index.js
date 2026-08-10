@@ -593,14 +593,15 @@ async function publishArticleToWebsite(slug, title, bodyHtml, photoUrl, postId) 
     const cleanContent = cleanArticleHtml(bodyHtml);
     const bloggerUrl = await publishArticleToBlogger(title, cleanContent, thumbnailUrl || photoUrl);
     if (!bloggerUrl) {
-      throw new Error('Blogger API publication failed or returned an empty URL.');
+      console.warn('⚠️ Blogger API publication failed or returned an empty URL. Falling back to main blog link.');
+      return process.env.WEBSITE_URL || 'https://xeducation-2026.blogspot.com/';
     }
 
     return bloggerUrl;
 
   } catch (err) {
     console.error('❌ Failed to publish article to Blogger:', err.message);
-    throw new Error(`Failed to publish article: ${err.message}`);
+    return process.env.WEBSITE_URL || 'https://xeducation-2026.blogspot.com/';
   }
 }
 

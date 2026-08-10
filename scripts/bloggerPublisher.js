@@ -1,10 +1,20 @@
-const { google } = require('googleapis');
+let google;
+try {
+  google = require('googleapis').google;
+} catch (_) {
+  console.warn("⚠️ 'googleapis' package is not installed or available.");
+}
 
 async function publishArticleToBlogger(title, bodyHtml, photoUrl) {
   const clientId = process.env.BLOGGER_CLIENT_ID;
   const clientSecret = process.env.BLOGGER_CLIENT_SECRET;
   const refreshToken = process.env.BLOGGER_REFRESH_TOKEN;
   const blogId = process.env.BLOGGER_BLOG_ID;
+
+  if (!google) {
+    console.warn("⚠️ googleapis library is missing. Skipping Blogger API publishing.");
+    return null;
+  }
 
   if (!clientId || !clientSecret || !refreshToken || !blogId) {
     console.warn("⚠️ Blogger API credentials not fully configured in .env. Skipping Blogger publish.");
@@ -46,12 +56,19 @@ async function publishArticleToBlogger(title, bodyHtml, photoUrl) {
       }
     });
 
-    console.log(`✅ Blogger article post successfully created: ${res.data.url}`);
-    return res.data.url;
+    if (res && res.data && res.data.url) {
+      console.log(`✅ Blogger article post successfully created: ${res.data.url}`);
+      return res.data.url;
+    }
+    
+    console.warn("⚠️ Blogger API returned response without URL:", res ? res.data : null);
+    return null;
   } catch (err) {
-    console.error("❌ Failed to publish article to Blogger:", err.message);
+    const errorDetails = err.response && err.response.data ? JSON.stringify(err.response.data) : err.message;
+    console.error("❌ Failed to publish article to Blogger:", errorDetails);
     return null;
   }
 }
 
 module.exports = { publishArticleToBlogger };
+
